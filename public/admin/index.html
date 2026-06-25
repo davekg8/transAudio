@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TransAudio — Centre de Contrôle</title>
+  <link rel="stylesheet" href="admin.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✝️</text></svg>">
+</head>
+<body>
+
+  <div class="app-container">
+
+    <!-- ====== HEADER ====== -->
+    <header class="header">
+      <div class="header-brand">
+        <div class="header-icon">✝</div>
+        <div>
+          <div class="header-title">TransAudio</div>
+          <div class="header-subtitle">Centre de Contrôle</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div class="streaming-badge" id="streamingBadge">
+          <span class="rec-dot"></span>
+          EN DIRECT
+        </div>
+        <div class="header-status">
+          <span class="status-dot" id="wsStatusDot"></span>
+          <span id="wsStatusText">Déconnecté</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ====== DASHBOARD GRID ====== -->
+    <div class="dashboard-grid">
+
+      <!-- --- Audio Input --- -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🎤</div>
+          <div class="card-title">Entrée Audio</div>
+        </div>
+        <div class="audio-select-group">
+          <div class="select-wrapper">
+            <select id="audioDeviceSelect">
+              <option value="">Chargement des périphériques…</option>
+            </select>
+          </div>
+          <div class="device-name-label" id="deviceNameLabel">Aucun périphérique sélectionné</div>
+          <div class="vu-meter-container">
+            <div class="vu-meter-label">
+              <span>Niveau Audio</span>
+              <span id="vuLevelDb">-∞ dB</span>
+            </div>
+            <div class="vu-meter-track">
+              <div class="vu-meter-fill" id="vuMeterFill"></div>
+            </div>
+            <div class="vu-meter-ticks">
+              <span>-60</span>
+              <span>-40</span>
+              <span>-20</span>
+              <span>-10</span>
+              <span>0 dB</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- --- Translation Control --- -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🌐</div>
+          <div class="card-title">Contrôle de Traduction</div>
+        </div>
+
+        <div class="language-grid" id="languageGrid">
+          <label class="language-checkbox">
+            <input type="checkbox" name="lang" value="en" checked>
+            <span class="checkmark"></span>
+            <span class="lang-flag">🇬🇧</span>
+            <span class="lang-label">Anglais</span>
+          </label>
+          <label class="language-checkbox">
+            <input type="checkbox" name="lang" value="es">
+            <span class="checkmark"></span>
+            <span class="lang-flag">🇪🇸</span>
+            <span class="lang-label">Espagnol</span>
+          </label>
+          <label class="language-checkbox">
+            <input type="checkbox" name="lang" value="pt">
+            <span class="checkmark"></span>
+            <span class="lang-flag">🇧🇷</span>
+            <span class="lang-label">Portugais</span>
+          </label>
+          <label class="language-checkbox">
+            <input type="checkbox" name="lang" value="de">
+            <span class="checkmark"></span>
+            <span class="lang-flag">🇩🇪</span>
+            <span class="lang-label">Allemand</span>
+          </label>
+          <label class="language-checkbox">
+            <input type="checkbox" name="lang" value="zh">
+            <span class="checkmark"></span>
+            <span class="lang-flag">🇨🇳</span>
+            <span class="lang-label">Chinois</span>
+          </label>
+          <label class="language-checkbox">
+            <input type="checkbox" name="lang" value="ar">
+            <span class="checkmark"></span>
+            <span class="lang-flag">🇸🇦</span>
+            <span class="lang-label">Arabe</span>
+          </label>
+        </div>
+
+        <button class="btn-main-action start" id="btnToggle">
+          <span class="btn-icon">⚡</span>
+          Démarrer la Traduction
+        </button>
+      </div>
+
+      <!-- --- Live Monitoring --- -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">📊</div>
+          <div class="card-title">Surveillance en Direct</div>
+        </div>
+
+        <div class="monitoring-stats">
+          <div class="stat-card">
+            <div class="stat-icon">🌐</div>
+            <div class="stat-value" id="statSessions">0</div>
+            <div class="stat-label">Sessions</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-value" id="statListeners">0</div>
+            <div class="stat-label">Auditeurs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-value" id="statStatus">Inactif</div>
+            <div class="stat-label">État</div>
+          </div>
+        </div>
+
+        <div class="session-list" id="sessionList">
+          <div class="session-empty">Aucune session active</div>
+        </div>
+
+        <div class="uptime-display">
+          <span class="uptime-label">⏱ Durée :</span>
+          <span class="uptime-value" id="uptimeValue">00:00:00</span>
+        </div>
+      </div>
+
+      <!-- --- Connection Info --- -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🔗</div>
+          <div class="card-title">Informations de Connexion</div>
+        </div>
+
+        <div class="connection-info-grid">
+          <div class="client-url-block">
+            <div class="client-url-label">URL pour les auditeurs</div>
+            <div class="client-url">
+              <div class="client-url-value" id="clientUrl">—</div>
+              <button class="btn-copy" id="btnCopyUrl" title="Copier l'URL">📋 Copier</button>
+            </div>
+            <div class="client-url-label" style="margin-top:8px;">Partagez cette adresse avec les fidèles pour qu'ils reçoivent la traduction en temps réel sur leur smartphone.</div>
+          </div>
+          <div class="qr-placeholder" id="qrCode">
+            <span class="qr-icon">⬜</span>
+            QR Code
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /dashboard-grid -->
+
+    <!-- ====== FOOTER ====== -->
+    <footer class="footer">
+      <div>TransAudio v1.0 — Traduction audio en temps réel</div>
+      <div class="footer-ws-status">
+        <span class="status-dot" id="wsStatusDotFooter"></span>
+        <span id="wsStatusTextFooter">WebSocket : Déconnecté</span>
+      </div>
+    </footer>
+
+  </div><!-- /app-container -->
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

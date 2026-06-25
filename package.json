@@ -1,0 +1,19 @@
+{
+  "name": "transaudio-church",
+  "version": "1.0.0",
+  "description": "Application de traduction live pour l'église utilisant Gemini Live Translate",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

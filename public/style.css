@@ -1,0 +1,468 @@
+/* ==========================================================
+   TransAudio — Dark Elegant Church Theme
+   ========================================================== */
+
+/* ── Custom Properties ──────────────────────────────────── */
+:root {
+  --bg-dark:       #0c0c14;
+  --bg-mid:        #1a1a2e;
+  --bg-card:       rgba(255, 255, 255, 0.04);
+  --bg-card-hover: rgba(255, 255, 255, 0.08);
+
+  --gold:          #d4a745;
+  --gold-light:    #f0d078;
+  --gold-dim:      rgba(212, 167, 69, 0.25);
+  --gold-glow:     rgba(212, 167, 69, 0.15);
+
+  --text-primary:  #f0ece4;
+  --text-secondary:#b0a99a;
+  --text-muted:    #706a5e;
+
+  --danger:        #c0392b;
+  --success:       #27ae60;
+  --info:          #2e86de;
+
+  --radius:        16px;
+  --radius-sm:     10px;
+  --radius-xs:     6px;
+
+  --font-heading:  'Outfit', sans-serif;
+  --font-body:     'Inter', sans-serif;
+
+  --transition:    0.35s cubic-bezier(.4,0,.2,1);
+}
+
+/* ── Reset & Base ───────────────────────────────────────── */
+*, *::before, *::after {
+  margin: 0; padding: 0; box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: linear-gradient(160deg, var(--bg-dark) 0%, var(--bg-mid) 100%);
+  min-height: 100dvh;
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Spotlight Background Effect ────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  top: -30%; left: 50%;
+  transform: translateX(-50%);
+  width: 140vw; height: 80vh;
+  background: radial-gradient(ellipse at center, var(--gold-glow) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── App Container ──────────────────────────────────────── */
+#app {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  min-height: 100vh;
+  padding: 24px 20px 40px;
+}
+
+/* ── Screen Management ──────────────────────────────────── */
+.screen {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 420px;
+  animation: fadeSlideIn 0.5s ease both;
+}
+.screen.active {
+  display: flex;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Glass Card ─────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--gold-dim);
+  border-radius: var(--radius);
+  padding: 32px 24px;
+  width: 100%;
+  box-shadow: 0 0 40px rgba(0,0,0,0.3), 0 0 80px var(--gold-glow);
+}
+
+/* ── Typography ─────────────────────────────────────────── */
+h1, h2, h3 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.church-name {
+  font-size: 1.15rem;
+  color: var(--gold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.main-title {
+  font-size: 1.6rem;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+  margin-bottom: 28px;
+}
+
+/* ── Animated Cross Icon ────────────────────────────────── */
+.cross-icon {
+  position: relative;
+  width: 48px; height: 48px;
+  margin: 0 auto 24px;
+}
+
+.cross-icon::before,
+.cross-icon::after {
+  content: '';
+  position: absolute;
+  background: var(--gold);
+  border-radius: 3px;
+}
+
+/* Vertical bar */
+.cross-icon::before {
+  width: 6px; height: 36px;
+  top: 4px; left: 50%;
+  transform: translateX(-50%);
+}
+/* Horizontal bar */
+.cross-icon::after {
+  width: 26px; height: 6px;
+  top: 12px; left: 50%;
+  transform: translateX(-50%);
+}
+
+.cross-icon {
+  animation: crossGlow 3s ease-in-out infinite;
+}
+
+@keyframes crossGlow {
+  0%, 100% { filter: drop-shadow(0 0 6px var(--gold-dim)); }
+  50%      { filter: drop-shadow(0 0 18px var(--gold)); }
+}
+
+/* ── Language Grid ──────────────────────────────────────── */
+.lang-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.lang-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px 12px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  border: 1px solid rgba(212,167,69,0.18);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.lang-btn .flag {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.lang-btn:hover,
+.lang-btn:focus-visible {
+  background: linear-gradient(135deg, rgba(212,167,69,0.15), rgba(212,167,69,0.06));
+  border-color: var(--gold);
+  box-shadow: 0 0 20px var(--gold-glow);
+  transform: scale(1.03);
+}
+
+.lang-btn:active {
+  transform: scale(0.97);
+  transition-duration: 0.1s;
+}
+
+/* ── Waiting Banner ─────────────────────────────────────── */
+.waiting-banner {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 14px 18px;
+  background: rgba(212,167,69,0.08);
+  border: 1px solid rgba(212,167,69,0.15);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  text-align: center;
+}
+.waiting-banner.visible {
+  display: flex;
+}
+
+.waiting-banner .dot-pulse {
+  flex-shrink: 0;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Listening Screen ───────────────────────────────────── */
+.listening-card {
+  text-align: center;
+}
+
+.listening-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 6px;
+}
+
+.live-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.7); }
+}
+
+.listening-lang {
+  font-family: var(--font-heading);
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin-bottom: 28px;
+}
+
+/* ── Audio Wave Visualizer ──────────────────────────────── */
+.wave-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 64px;
+  margin-bottom: 32px;
+}
+
+.wave-bar {
+  width: 6px;
+  min-height: 6px;
+  border-radius: 3px;
+  background: var(--gold);
+  transition: height 0.12s ease;
+}
+
+/* Default idle animation */
+.wave-bar { animation: waveIdle 1.6s ease-in-out infinite; }
+.wave-bar:nth-child(1) { animation-delay: 0s; }
+.wave-bar:nth-child(2) { animation-delay: 0.15s; }
+.wave-bar:nth-child(3) { animation-delay: 0.3s; }
+.wave-bar:nth-child(4) { animation-delay: 0.45s; }
+.wave-bar:nth-child(5) { animation-delay: 0.6s; }
+
+@keyframes waveIdle {
+  0%, 100% { height: 8px; opacity: 0.5; }
+  50%      { height: 28px; opacity: 1; }
+}
+
+/* When audio is actively playing, JS sets inline height — disable CSS animation */
+.wave-container.active .wave-bar {
+  animation: none;
+}
+
+/* ── Volume Slider ──────────────────────────────────────── */
+.volume-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 28px;
+  padding: 0 4px;
+}
+
+.volume-icon {
+  font-size: 1.2rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.1);
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 2px solid var(--bg-dark);
+  box-shadow: 0 0 8px var(--gold-dim);
+  cursor: pointer;
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 2px solid var(--bg-dark);
+  box-shadow: 0 0 8px var(--gold-dim);
+  cursor: pointer;
+}
+
+/* ── Stop Button ────────────────────────────────────────── */
+.btn-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 16px;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: rgba(192, 57, 43, 0.18);
+  border: 1px solid rgba(192, 57, 43, 0.35);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-stop:hover,
+.btn-stop:focus-visible {
+  background: rgba(192, 57, 43, 0.3);
+  border-color: var(--danger);
+  box-shadow: 0 0 16px rgba(192, 57, 43, 0.2);
+}
+
+.btn-stop:active {
+  transform: scale(0.97);
+  transition-duration: 0.1s;
+}
+
+/* ── Connection Status ──────────────────────────────────── */
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 20px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  transition: background var(--transition);
+}
+
+.status-dot.disconnected {
+  background: var(--danger);
+}
+
+/* ── Reconnect Screen ───────────────────────────────────── */
+.reconnect-card {
+  text-align: center;
+}
+
+.reconnect-card h2 {
+  font-size: 1.3rem;
+  margin-bottom: 8px;
+}
+
+.reconnect-card p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 28px;
+}
+
+/* Spinner */
+.spinner {
+  width: 40px; height: 40px;
+  margin: 0 auto;
+  border: 3px solid rgba(212,167,69,0.2);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Utility ────────────────────────────────────────────── */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); border: 0;
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (min-width: 480px) {
+  .card { padding: 40px 32px; }
+  .main-title { font-size: 1.8rem; }
+  .lang-grid { gap: 16px; }
+  .lang-btn { padding: 24px 16px; font-size: 1rem; }
+}
+
+@media (min-width: 768px) {
+  .card { max-width: 480px; }
+  .lang-grid { grid-template-columns: repeat(3, 1fr); }
+}
