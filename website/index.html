@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TransAudio — Traduction en Direct pour l'Église</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/info/style.css">
+</head>
+<body>
+  <div class="background-glow">
+    <div class="orb orb-top-left"></div>
+    <div class="orb orb-bottom-right"></div>
+  </div>
+
+  <div class="layout-wrapper">
+    <!-- Header / Navigation -->
+    <header class="main-header">
+      <div class="nav-container">
+        <a href="/info" class="logo">
+          <span class="logo-icon">✝</span>
+          <span class="logo-text">TransAudio</span>
+        </a>
+        <nav>
+          <ul class="nav-links">
+            <li><a href="/info" class="active">Présentation</a></li>
+            <li><a href="/info/tuto.html">Tutoriel Fidèles</a></li>
+            <li><a href="/" class="nav-btn">Ouvrir l'App</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="container">
+      
+      <!-- Hero Section -->
+      <section class="hero">
+        <span class="badge">Gemini 3.5 Live Translate</span>
+        <h1 class="hero-title">La prédication,<br>sans barrière linguistique.</h1>
+        <p class="hero-subtitle">Une solution de traduction audio en temps réel à ultra-faible latence pour votre église. Le pasteur prêche, le PC multimédia traduit, et les fidèles écoutent instantanément sur leur smartphone.</p>
+        <div class="cta-group">
+          <a href="/info/tuto.html" class="btn btn-primary">Guide d'Écoute Fidèles</a>
+          <a href="/" class="btn btn-secondary">Accéder à la Console Admin</a>
+        </div>
+      </section>
+
+      <!-- Key Benefits / Features -->
+      <section class="features-section">
+        <div class="section-title-wrapper">
+          <h2 class="section-title">Pourquoi choisir TransAudio ?</h2>
+          <p class="section-subtitle">Conçu spécifiquement pour les églises locales, alliant simplicité technique et maîtrise budgétaire.</p>
+        </div>
+
+        <div class="features-grid">
+          <!-- Feature 1 -->
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h3 class="feature-title">Temps Réel Absolu</h3>
+            <p class="feature-desc">Grâce à l'API bidirectionnelle Gemini Live via WebSockets, la traduction se fait en continu avec une latence quasi nulle. Les fidèles entendent le prêche traduit en même temps que l'assemblée.</p>
+          </div>
+          
+          <!-- Feature 2 -->
+          <div class="feature-card">
+            <div class="feature-icon gold">💰</div>
+            <h3 class="feature-title">Budget 100% Maîtrisé</h3>
+            <p class="feature-desc">Seul le serveur central de l'église appelle l'API Gemini. Les fidèles se connectent localement sur le serveur. Que vous ayez 5 ou 500 auditeurs, le coût reste fixe (environ $2.20/h par langue).</p>
+          </div>
+
+          <!-- Feature 3 -->
+          <div class="feature-card">
+            <div class="feature-icon">📱</div>
+            <h3 class="feature-title">Sans aucune Installation</h3>
+            <p class="feature-desc">Les fidèles n'ont pas besoin d'installer d'application depuis Google Play ou l'App Store. Il leur suffit de scanner un QR Code pour ouvrir la page web d'écoute sur leur navigateur habituel.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- How it Works section -->
+      <section class="how-it-works-section">
+        <div class="section-title-wrapper">
+          <h2 class="section-title">Comment ça fonctionne ?</h2>
+          <p class="section-subtitle">Une intégration simple avec votre équipement de régie actuel.</p>
+        </div>
+
+        <div class="tuto-box">
+          <div class="tuto-layout">
+            <div class="tuto-steps-list">
+              <div class="tuto-step-item active" data-step="1">
+                <div class="step-num">1</div>
+                <div class="step-text">
+                  <h3>Capture Audio</h3>
+                  <p>La sortie de votre table de mixage est branchée sur le PC de la régie multimédia.</p>
+                </div>
+              </div>
+              <div class="tuto-step-item" data-step="2">
+                <div class="step-num">2</div>
+                <div class="step-text">
+                  <h3>Traduction par l'IA</h3>
+                  <p>Le dashboard d'administration envoie l'audio au serveur local, qui le traduit via Gemini.</p>
+                </div>
+              </div>
+              <div class="tuto-step-item" data-step="3">
+                <div class="step-num">3</div>
+                <div class="step-text">
+                  <h3>Diffusion Locale</h3>
+                  <p>Le serveur local diffuse instantanément le flux audio traduit aux téléphones connectés au Wi-Fi.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="tuto-graphic-panel">
+              <div class="graphic-slide active" data-slide="1">
+                <div class="graphic-illustration">🎤</div>
+                <h4 class="graphic-title">1. Entrée Régie Directe</h4>
+                <p class="graphic-details">Sélectionnez simplement votre micro ou la sortie générale de la table de mixage dans l'interface d'administration.</p>
+              </div>
+              <div class="graphic-slide" data-slide="2">
+                <div class="graphic-illustration">🤖</div>
+                <h4 class="graphic-title">2. Traduction Gemini Live</h4>
+                <p class="graphic-details">Le modèle officiel interprète la voix et synthétise une traduction audio fluide dans la langue cible.</p>
+              </div>
+              <div class="graphic-slide" data-slide="3">
+                <div class="graphic-illustration">📶</div>
+                <h4 class="graphic-title">3. Écoute Wi-Fi Locale</h4>
+                <p class="graphic-details">Les fidèles scannent le QR Code projeté, branchent leurs écouteurs et écoutent le prêche en direct dans leur langue.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Technical specifications -->
+      <section class="tech-spec-section">
+        <div class="section-title-wrapper">
+          <h2 class="section-title">Fiche Technique</h2>
+          <p class="section-subtitle">Détails de l'infrastructure et de l'encodage audio.</p>
+        </div>
+
+        <div class="tech-box">
+          <div class="tech-grid">
+            <div class="tech-card">
+              <h3>Audio Entrée (Régie)</h3>
+              <ul>
+                <li><span>Format</span> <span>PCM Brut (16-bit)</span></li>
+                <li><span>Fréquence</span> <span>16 000 Hz (mono)</span></li>
+                <li><span>Taille de bloc</span> <span>100 ms</span></li>
+                <li><span>Connexion</span> <span>WebSocket local</span></li>
+              </ul>
+            </div>
+            <div class="tech-card">
+              <h3>Traduction (Gemini)</h3>
+              <ul>
+                <li><span>Modèle</span> <span>gemini-3.5-live-translate</span></li>
+                <li><span>Langues</span> <span>Multilingue (EN, ES, PT, FR...)</span></li>
+                <li><span>Voix</span> <span>Kore, Puck, Aoede...</span></li>
+                <li><span>Protocole</span> <span>WebSocket v1beta</span></li>
+              </ul>
+            </div>
+            <div class="tech-card">
+              <h3>Audio Sortie (Fidèles)</h3>
+              <ul>
+                <li><span>Format</span> <span>PCM Brut (16-bit)</span></li>
+                <li><span>Fréquence</span> <span>24 000 Hz (mono)</span></li>
+                <li><span>Décodage</span> <span>Web Audio API (Buffer)</span></li>
+                <li><span>Latence globale</span> <span>&lt; 500 ms</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="main-footer">
+      <ul class="footer-links">
+        <li><a href="/info">Présentation</a></li>
+        <li><a href="/info/tuto.html">Tutoriel Fidèles</a></li>
+        <li><a href="/">Console Régie</a></li>
+      </ul>
+      <p>&copy; 2026 TransAudio — ICC Cergy. Tous droits réservés.</p>
+    </footer>
+  </div>
+
+  <script src="/info/app.js"></script>
+</body>
+</html>

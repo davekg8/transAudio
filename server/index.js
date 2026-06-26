@@ -7,6 +7,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const os = require('os');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const SessionManager = require('./session-manager');
 const AudioBroadcaster = require('./audio-broadcaster');
@@ -17,14 +18,23 @@ const AudioBroadcaster = require('./audio-broadcaster');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const API_KEY = process.env.GEMINI_API_KEY;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const TARGET_LANGUAGES = (process.env.TARGET_LANGUAGES || 'en')
   .split(',')
   .map((l) => l.trim())
   .filter(Boolean);
 
+const currentSessionToken = uuidv4();
+
 if (!API_KEY || API_KEY === 'your_api_key_here') {
   console.error('⚠️  GEMINI_API_KEY non définie. Copiez .env.example vers .env et ajoutez votre clé.');
   process.exit(1);
+}
+
+if (ADMIN_PASSWORD) {
+  console.log('[Server] Sécurité d\'administration activée avec mot de passe.');
+} else {
+  console.log('[Server] ⚠️ Sécurité d\'administration désactivée (aucun mot de passe défini).');
 }
 
 /* -------------------------------------------------------------------- */
@@ -32,6 +42,64 @@ if (!API_KEY || API_KEY === 'your_api_key_here') {
 /* -------------------------------------------------------------------- */
 
 const app = express();
+
+// Parse form data for login
+app.use(express.urlencoded({ extended: true }));
+
+// Cookie helper
+function parseCookies(req) {
+  const list = {};
+  const rc = req.headers.cookie;
+  if (rc) {
+    rc.split(';').forEach((cookie) => {
+      const parts = cookie.split('=');
+      list[parts.shift().trim()] = decodeURI(parts.join('='));
+    });
+  }
+  return list;
+}
+
+// Authentication middleware
+function adminAuthMiddleware(req, res, next) {
+  if (!ADMIN_PASSWORD) {
+    return next();
+  }
+
+  const subpath = req.path;
+  if (subpath === '/login.html' || subpath === '/login.css' || subpath === '/login') {
+    return next();
+  }
+
+  const cookies = parseCookies(req);
+  const token = cookies['transaudio_admin_auth'];
+  if (token && token === currentSessionToken) {
+    return next();
+  }
+
+  res.redirect('/admin/login.html');
+}
+
+// Protect /admin routes
+app.use('/admin', adminAuthMiddleware);
+
+// POST route for login
+app.post('/admin/login', (req, res) => {
+  const { password } = req.body;
+  if (password === ADMIN_PASSWORD) {
+    res.cookie('transaudio_admin_auth', currentSessionToken, {
+      httpOnly: true,
+      secure: req.protocol === 'https',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000 // 1 day
+    });
+    res.redirect('/admin/');
+  } else {
+    res.redirect('/admin/login.html?error=1');
+  }
+});
+
+// Serve the presentation website under /info
+app.use('/info', express.static(path.join(__dirname, '..', 'website')));
 
 // Serve the public client files
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -56,6 +124,17 @@ server.on('upgrade', (req, socket, head) => {
   const pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
 
   if (pathname === '/ws/admin') {
+    if (ADMIN_PASSWORD) {
+      const cookies = parseCookies(req);
+      const token = cookies['transaudio_admin_auth'];
+      if (!token || token !== currentSessionToken) {
+        console.log('[Server] Tentative de connexion WebSocket admin non autorisée');
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+    }
+
     wss.handleUpgrade(req, socket, head, (ws) => {
       handleAdmin(ws, req);
     });

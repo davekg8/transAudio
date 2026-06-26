@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connexion Régie — TransAudio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin/login.css">
+</head>
+<body>
+  <div class="stars"></div>
+  <div class="glow-container">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+  </div>
+
+  <div class="login-container">
+    <div class="login-card">
+      <div class="brand">
+        <span class="brand-icon">✝</span>
+        <span class="brand-name">TransAudio</span>
+      </div>
+      
+      <h1 class="login-title">Console Régie</h1>
+      <p class="login-subtitle">Veuillez saisir le mot de passe d'administration pour accéder au panneau de contrôle.</p>
+
+      <form action="/admin/login" method="POST" class="login-form">
+        <div id="error-banner" class="error-banner hidden">
+          <span class="error-icon">⚠️</span>
+          <span class="error-text">Mot de passe incorrect. Veuillez réessayer.</span>
+        </div>
+
+        <div class="input-group">
+          <label for="password">Mot de passe</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="password" name="password" placeholder="Saisir le mot de passe..." required autofocus>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-submit">
+          <span>Se connecter</span>
+          <span class="btn-arrow">→</span>
+        </button>
+      </form>
+    </div>
+    
+    <div class="login-footer">
+      <p>&copy; 2026 TransAudio. Tous droits réservés.</p>
+    </div>
+  </div>
+
+  <script>
+    // Détecter si une erreur de mot de passe est présente dans l'URL (?error=1)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('error') === '1') {
+      const errorBanner = document.getElementById('error-banner');
+      errorBanner.classList.remove('hidden');
+      
+      // Animation de secousse (shake) sur la carte de connexion
+      const card = document.querySelector('.login-card');
+      card.classList.add('shake-animation');
+      card.addEventListener('animationend', () => {
+        card.classList.remove('shake-animation');
+      });
+    }
+  </script>
+</body>
+</html>
