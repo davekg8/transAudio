@@ -1,6 +1,7 @@
 /**
  * TransAudio — Brand & Tutorial Website Logic
  * Gère l'interactivité du guide étape par étape (changement de diapositive).
+ * Conforme aux directives UI/UX Pro Max (Accessibilité, Clavier, Motion).
  */
 
 (function () {
@@ -17,50 +18,87 @@
   function initStepTutorial() {
     const stepItems = document.querySelectorAll('.tuto-step-item');
     const graphicSlides = document.querySelectorAll('.graphic-slide');
+    const tabList = document.querySelector('[role="tablist"]');
 
     if (stepItems.length === 0 || graphicSlides.length === 0) return;
 
-    stepItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        const stepNum = item.getAttribute('data-step');
-        if (!stepNum) return;
+    // Détecter la préférence d'animations réduites du système
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        // 1. Activer le bouton d'étape cliqué
-        stepItems.forEach(el => el.classList.remove('active'));
-        item.classList.add('active');
-
-        // 2. Activer la diapositive d'illustration correspondante avec transition
-        graphicSlides.forEach((slide) => {
-          const slideNum = slide.getAttribute('data-slide');
-          if (slideNum === stepNum) {
-            slide.classList.add('active');
-          } else {
-            slide.classList.remove('active');
+    // Fonction pour activer une étape spécifique
+    function activateStep(index, focus = false) {
+      stepItems.forEach((item, i) => {
+        const isActive = i === index;
+        item.classList.toggle('active', isActive);
+        item.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        if (isActive) {
+          item.setAttribute('tabindex', '0');
+          if (focus) {
+            item.focus();
           }
-        });
+        } else {
+          item.setAttribute('tabindex', '-1');
+        }
       });
-    });
 
-    // Rotation automatique toutes les 6 secondes pour rendre le site dynamique
-    let currentStep = 1;
-    const totalSteps = stepItems.length;
-    let autoPlayInterval = setInterval(autoPlaySteps, 6000);
-
-    function autoPlaySteps() {
-      currentStep = (currentStep % totalSteps) + 1;
-      const nextStepItem = document.querySelector(`.tuto-step-item[data-step="${currentStep}"]`);
-      if (nextStepItem) {
-        // Déclencher le clic de manière programmée
-        nextStepItem.click();
-      }
+      graphicSlides.forEach((slide, i) => {
+        const isActive = i === index;
+        slide.classList.toggle('active', isActive);
+        if (prefersReducedMotion) {
+          // Si l'utilisateur préfère réduire les animations, on coupe les transitions CSS
+          slide.style.transition = 'none';
+        }
+      });
     }
 
-    // Arrêter la rotation automatique dès que l'utilisateur clique sur une étape
-    stepItems.forEach((item) => {
+    // Gestion du clic et de l'accessibilité
+    stepItems.forEach((item, index) => {
       item.addEventListener('click', () => {
         clearInterval(autoPlayInterval);
+        activateStep(index, false);
+      });
+
+      // Support navigation au clavier
+      item.addEventListener('keydown', (e) => {
+        let newIndex = index;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          newIndex = (index + 1) % stepItems.length;
+          clearInterval(autoPlayInterval);
+          activateStep(newIndex, true);
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          newIndex = (index - 1 + stepItems.length) % stepItems.length;
+          clearInterval(autoPlayInterval);
+          activateStep(newIndex, true);
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          clearInterval(autoPlayInterval);
+          activateStep(0, true);
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          clearInterval(autoPlayInterval);
+          activateStep(stepItems.length - 1, true);
+        }
       });
     });
+
+    // Rotation automatique toutes les 6 secondes pour rendre le site vivant
+    let currentStepIndex = 0;
+    const totalSteps = stepItems.length;
+    let autoPlayInterval = null;
+
+    if (!prefersReducedMotion) {
+      autoPlayInterval = setInterval(autoPlaySteps, 6000);
+    }
+
+    function autoPlaySteps() {
+      currentStepIndex = (currentStepIndex + 1) % totalSteps;
+      activateStep(currentStepIndex, false);
+    }
+
+    // Initialiser les attributs de départ
+    activateStep(0, false);
   }
 
 })();
