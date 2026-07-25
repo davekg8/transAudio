@@ -11,6 +11,9 @@ const { v4: uuidv4 } = require('uuid');
 
 const SessionManager = require('./session-manager');
 const AudioBroadcaster = require('./audio-broadcaster');
+const Logger = require('./logger');
+
+const logger = new Logger('Server');
 
 /* -------------------------------------------------------------------- */
 /*  Configuration                                                       */
@@ -19,6 +22,7 @@ const AudioBroadcaster = require('./audio-broadcaster');
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const API_KEY = process.env.GEMINI_API_KEY;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const CHURCH_NAME = process.env.CHURCH_NAME || 'Notre Église';
 const TARGET_LANGUAGES = (process.env.TARGET_LANGUAGES || 'en')
   .split(',')
   .map((l) => l.trim())
@@ -27,14 +31,14 @@ const TARGET_LANGUAGES = (process.env.TARGET_LANGUAGES || 'en')
 const currentSessionToken = uuidv4();
 
 if (!API_KEY || API_KEY === 'your_api_key_here') {
-  console.error('⚠️  GEMINI_API_KEY non définie. Copiez .env.example vers .env et ajoutez votre clé.');
+  logger.error('CRITICAL: GEMINI_API_KEY is not defined. Please copy .env.example to .env and set a valid API key.');
   process.exit(1);
 }
 
 if (ADMIN_PASSWORD) {
-  console.log('[Server] Sécurité d\'administration activée avec mot de passe.');
+  logger.info("Admin password protection is ENABLED.");
 } else {
-  console.log('[Server] ⚠️ Sécurité d\'administration désactivée (aucun mot de passe défini).');
+  logger.warn("⚠️ Admin password protection is DISABLED. Set ADMIN_PASSWORD in .env for production deployment.");
 }
 
 /* -------------------------------------------------------------------- */
@@ -43,10 +47,9 @@ if (ADMIN_PASSWORD) {
 
 const app = express();
 
-// Parse form data for login
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// Cookie helper
 function parseCookies(req) {
   const list = {};
   const rc = req.headers.cookie;
@@ -59,7 +62,6 @@ function parseCookies(req) {
   return list;
 }
 
-// Authentication middleware
 function adminAuthMiddleware(req, res, next) {
   if (!ADMIN_PASSWORD) {
     return next();
@@ -79,10 +81,8 @@ function adminAuthMiddleware(req, res, next) {
   res.redirect('/admin/login.html');
 }
 
-// Protect /admin routes
 app.use('/admin', adminAuthMiddleware);
 
-// POST route for login
 app.post('/admin/login', (req, res) => {
   const { password } = req.body;
   if (password === ADMIN_PASSWORD) {
@@ -98,10 +98,10 @@ app.post('/admin/login', (req, res) => {
   }
 });
 
-// Serve the presentation website under /info
+// Serve presentation website under /info
 app.use('/info', express.static(path.join(__dirname, '..', 'website')));
 
-// Serve the public client files
+// Serve public client files
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const server = http.createServer(app);
@@ -111,15 +111,23 @@ const server = http.createServer(app);
 /* -------------------------------------------------------------------- */
 
 const sessionManager = new SessionManager({ apiKey: API_KEY });
-const broadcaster = new AudioBroadcaster();
+const broadcaster = new AudioBroadcaster({ churchName: CHURCH_NAME });
+
+// Wire SessionManager status changes to broadcaster
+sessionManager.on('session_status', ({ language, status }) => {
+  broadcaster.notifySessionStatus(language, status);
+  sendAdminStatus();
+});
 
 /* -------------------------------------------------------------------- */
-/*  WebSocket server (path-based routing)                               */
+/*  WebSocket server with payload limits & auth                         */
 /* -------------------------------------------------------------------- */
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({
+  noServer: true,
+  maxPayload: 1024 * 1024 // 1 MB payload limit (Action 2.4)
+});
 
-// Upgrade handler: route by URL path
 server.on('upgrade', (req, socket, head) => {
   const pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
 
@@ -128,7 +136,7 @@ server.on('upgrade', (req, socket, head) => {
       const cookies = parseCookies(req);
       const token = cookies['transaudio_admin_auth'];
       if (!token || token !== currentSessionToken) {
-        console.log('[Server] Tentative de connexion WebSocket admin non autorisée');
+        logger.warn(`Unauthorized Admin WebSocket connection attempt from ${req.socket.remoteAddress}`);
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -155,28 +163,33 @@ let adminWs = null;
 let statusInterval = null;
 
 function handleAdmin(ws, req) {
-  console.log('[Server] Admin connected');
+  logger.info(`Admin connected via WebSocket from ${req.socket.remoteAddress}`);
   adminWs = ws;
 
-  // Send initial status
   sendAdminStatus();
-
-  // Periodic status updates every 2 seconds
   statusInterval = setInterval(sendAdminStatus, 2000);
 
+  // Simple Rate Limiting for Admin socket (Action 2.4)
+  let messageCount = 0;
+  const rateReset = setInterval(() => { messageCount = 0; }, 1000);
+
   ws.on('message', async (raw) => {
+    messageCount++;
+    if (messageCount > 150) { // Limit to 150 msg/sec max
+      logger.warn('Admin WebSocket exceeded rate limit. Dropping message.');
+      return;
+    }
+
     try {
       const msg = JSON.parse(raw.toString());
 
       switch (msg.type) {
         case 'start': {
           const languages = msg.languages || TARGET_LANGUAGES;
-          console.log(`[Server] Admin requested start: ${languages.join(', ')}`);
+          logger.info(`Admin requested start sessions for: ${languages.join(', ')}`);
 
-          // Start sessions first (this clears any previous listeners)
           await sessionManager.startSession(languages);
 
-          // THEN wire translated audio → broadcaster (after sessions are created)
           for (const lang of languages) {
             sessionManager.onTranslatedAudio(lang, (chunk) => {
               broadcaster.broadcast(lang, chunk);
@@ -190,7 +203,7 @@ function handleAdmin(ws, req) {
         }
 
         case 'stop': {
-          console.log('[Server] Admin requested stop');
+          logger.info('Admin requested stop sessions');
           await sessionManager.stopSession();
           broadcaster.notifyStreamingState(false);
           sendAdminStatus();
@@ -198,15 +211,8 @@ function handleAdmin(ws, req) {
         }
 
         case 'audio': {
-          // Forward audio from admin mic to all Gemini sessions
           if (msg.data && sessionManager.isStreaming) {
             sessionManager.feedAudio(msg.data);
-            // Log every 100th chunk to confirm audio flow without flooding
-            if (!global._audioChunkCount) global._audioChunkCount = 0;
-            global._audioChunkCount++;
-            if (global._audioChunkCount % 100 === 1) {
-              console.log(`[Server] Audio chunk #${global._audioChunkCount} received (${msg.data.length} bytes base64)`);
-            }
           }
           break;
         }
@@ -217,17 +223,18 @@ function handleAdmin(ws, req) {
         }
 
         default:
-          console.log(`[Server] Unknown admin message type: ${msg.type}`);
+          logger.warn(`Unknown admin message type: ${msg.type}`);
       }
     } catch (err) {
-      console.error(`[Server] Error processing admin message: ${err.message}`);
+      logger.error('Error processing admin message', err);
       sendToWs(ws, { type: 'error', message: err.message });
     }
   });
 
   ws.on('close', () => {
-    console.log('[Server] Admin disconnected');
+    logger.info('Admin WebSocket disconnected');
     adminWs = null;
+    clearInterval(rateReset);
     if (statusInterval) {
       clearInterval(statusInterval);
       statusInterval = null;
@@ -235,7 +242,7 @@ function handleAdmin(ws, req) {
   });
 
   ws.on('error', (err) => {
-    console.error(`[Server] Admin WebSocket error: ${err.message}`);
+    logger.error('Admin WebSocket error', err);
   });
 }
 
@@ -244,12 +251,18 @@ function sendAdminStatus() {
 
   const sessionStatus = sessionManager.getStatus();
   const clientCounts = broadcaster.getClientCounts();
+  const localIP = getLocalIP();
+  const serverUrl = `http://${localIP}:${PORT}`;
 
   sendToWs(adminWs, {
     type: 'status',
     streaming: sessionStatus.streaming,
     sessions: sessionStatus.sessions,
     clients: clientCounts,
+    churchName: CHURCH_NAME,
+    serverUrl: serverUrl,
+    localIP: localIP,
+    port: PORT
   });
 }
 
@@ -259,34 +272,40 @@ function sendAdminStatus() {
 
 function handleClient(ws, req) {
   const ip = req.socket.remoteAddress;
-  console.log(`[Server] Client connected from ${ip}`);
+  logger.info(`Listener client connected from ${ip}`);
+
+  // Rate Limiting for listener clients (Action 2.4)
+  let clientMsgCount = 0;
+  const clientRateReset = setInterval(() => { clientMsgCount = 0; }, 1000);
 
   ws.on('message', (raw) => {
+    clientMsgCount++;
+    if (clientMsgCount > 10) { // Listener clients shouldn't send > 10 msgs/sec
+      logger.warn(`Client ${ip} exceeded rate limit. Dropping message.`);
+      return;
+    }
+
     try {
       const msg = JSON.parse(raw.toString());
 
       if (msg.type === 'join' && msg.language) {
-        // Remove from previous language group if any
         broadcaster.removeClient(ws);
-        // Add to new language group
         broadcaster.addClient(ws, msg.language);
-        console.log(`[Server] Client ${ip} joined language: ${msg.language}`);
-        // Trigger a status update for admin
         sendAdminStatus();
       }
     } catch (err) {
-      console.error(`[Server] Error processing client message: ${err.message}`);
+      logger.error(`Error processing client message from ${ip}`, err);
     }
   });
 
   ws.on('close', () => {
     broadcaster.removeClient(ws);
-    console.log(`[Server] Client ${ip} disconnected`);
+    clearInterval(clientRateReset);
     sendAdminStatus();
   });
 
   ws.on('error', (err) => {
-    console.error(`[Server] Client WebSocket error: ${err.message}`);
+    logger.error(`Client WebSocket error for ${ip}`, err);
   });
 }
 
@@ -300,9 +319,6 @@ function sendToWs(ws, obj) {
   }
 }
 
-/**
- * Get the first non-internal IPv4 address for display purposes.
- */
 function getLocalIP() {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -326,6 +342,7 @@ server.listen(PORT, () => {
   console.log('╔══════════════════════════════════════════════════════════╗');
   console.log('║         ✝  TransAudio — Traduction en Direct  ✝        ║');
   console.log('╠══════════════════════════════════════════════════════════╣');
+  console.log(`║  Église : ${CHURCH_NAME.padEnd(45)}║`);
   console.log(`║  Admin  : http://localhost:${PORT}/admin/                  ║`);
   console.log(`║  Public : http://${localIP}:${PORT}                  ║`);
   console.log(`║  Langues: ${TARGET_LANGUAGES.join(', ').padEnd(45)}║`);
@@ -340,7 +357,7 @@ server.listen(PORT, () => {
 /* -------------------------------------------------------------------- */
 
 process.on('SIGINT', async () => {
-  console.log('\n[Server] Shutting down…');
+  logger.info('Shutting down server…');
   await sessionManager.stopSession();
   broadcaster.notifyStreamingState(false);
 
@@ -348,7 +365,7 @@ process.on('SIGINT', async () => {
 
   wss.close();
   server.close(() => {
-    console.log('[Server] Goodbye.');
+    logger.info('Server gracefully terminated.');
     process.exit(0);
   });
 });

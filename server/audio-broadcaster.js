@@ -1,11 +1,20 @@
 'use strict';
 
+const Logger = require('./logger');
+
 /**
  * AudioBroadcaster — manages public WebSocket clients and broadcasts
  * translated audio to them, grouped by language.
  */
 class AudioBroadcaster {
-  constructor() {
+  /**
+   * @param {Object} [opts]
+   * @param {string} [opts.churchName]
+   */
+  constructor({ churchName = 'Notre Église' } = {}) {
+    this._churchName = churchName;
+    this._logger = new Logger('AudioBroadcaster');
+
     /** @type {Map<WebSocket, { language: string }>} */
     this._clients = new Map();
 
@@ -16,20 +25,15 @@ class AudioBroadcaster {
     this._streamingActive = false;
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Client management                                                 */
-  /* ------------------------------------------------------------------ */
+  setChurchName(name) {
+    this._churchName = name || 'Notre Église';
+  }
 
-  /**
-   * Register a client WebSocket for a given language.
-   * @param {WebSocket} ws
-   * @param {string}    language  BCP-47 code
-   */
   addClient(ws, language) {
     this._clients.set(ws, { language });
-    console.log(`[Broadcaster] Client joined (${language}) — total: ${this._clients.size}`);
+    this._logger.info(`Client joined channel [${language}] — Total clients: ${this._clients.size}`);
 
-    // Send current state to the new client
+    // Send current configuration and state to new client
     this._send(ws, {
       type: 'languages',
       available: this._availableLanguages,
@@ -38,31 +42,19 @@ class AudioBroadcaster {
     this._send(ws, {
       type: 'info',
       streaming: this._streamingActive,
+      churchName: this._churchName,
       language,
     });
   }
 
-  /**
-   * Unregister a client.
-   * @param {WebSocket} ws
-   */
   removeClient(ws) {
     if (this._clients.has(ws)) {
       const { language } = this._clients.get(ws);
       this._clients.delete(ws);
-      console.log(`[Broadcaster] Client left (${language}) — total: ${this._clients.size}`);
+      this._logger.info(`Client left channel [${language}] — Remaining clients: ${this._clients.size}`);
     }
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Broadcasting                                                      */
-  /* ------------------------------------------------------------------ */
-
-  /**
-   * Send a translated audio chunk to every client subscribed to `language`.
-   * @param {string} language          BCP-47 code
-   * @param {string} base64AudioChunk  Base64-encoded PCM 24 kHz
-   */
   broadcast(language, base64AudioChunk) {
     const msg = JSON.stringify({ type: 'audio', data: base64AudioChunk });
 
@@ -73,10 +65,6 @@ class AudioBroadcaster {
     }
   }
 
-  /**
-   * Send a JSON message to ALL connected clients regardless of language.
-   * @param {Object} message
-   */
   notifyAll(message) {
     const raw = JSON.stringify(message);
     for (const [ws] of this._clients) {
@@ -84,28 +72,27 @@ class AudioBroadcaster {
     }
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Language / state management                                       */
-  /* ------------------------------------------------------------------ */
+  notifySessionStatus(language, state) {
+    for (const [ws, meta] of this._clients) {
+      if (meta.language === language && ws.readyState === 1) {
+        this._send(ws, {
+          type: 'session_status',
+          language,
+          state, // 'connected', 'reconnecting', 'disconnected'
+        });
+      }
+    }
+  }
 
-  /**
-   * Update the list of available languages and notify all clients.
-   * @param {string[]} languages
-   */
   setAvailableLanguages(languages) {
     this._availableLanguages = languages;
     this.notifyAll({ type: 'languages', available: languages });
   }
 
-  /** @returns {string[]} */
   getAvailableLanguages() {
     return this._availableLanguages;
   }
 
-  /**
-   * Notify all clients about the streaming state.
-   * @param {boolean} active
-   */
   notifyStreamingState(active) {
     this._streamingActive = active;
     for (const [ws, meta] of this._clients) {
@@ -113,19 +100,13 @@ class AudioBroadcaster {
         this._send(ws, {
           type: 'info',
           streaming: active,
+          churchName: this._churchName,
           language: meta.language,
         });
       }
     }
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Stats                                                             */
-  /* ------------------------------------------------------------------ */
-
-  /**
-   * @returns {Object<string, number>} e.g. { en: 5, fr: 3 }
-   */
   getClientCounts() {
     const counts = {};
     for (const [, meta] of this._clients) {
@@ -134,14 +115,9 @@ class AudioBroadcaster {
     return counts;
   }
 
-  /** @returns {number} */
   get totalClients() {
     return this._clients.size;
   }
-
-  /* ------------------------------------------------------------------ */
-  /*  Internal                                                          */
-  /* ------------------------------------------------------------------ */
 
   _send(ws, obj) {
     if (ws.readyState === 1) {

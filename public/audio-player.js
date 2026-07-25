@@ -1,22 +1,25 @@
 /**
- * AudioPlayer — Streaming PCM 24kHz playback engine
- * Decodes base64-encoded Int16 PCM chunks and plays them continuously
- * using a ScriptProcessorNode with a circular buffer.
+ * AudioPlayer — Streaming PCM playback engine
+ * Decodes base64-encoded Int16 PCM chunks (24 kHz) and plays them continuously.
+ * Uses AudioWorkletNode with fallback to ScriptProcessorNode.
+ * Includes memory alignment safety and context rate resampling.
  */
 class AudioPlayer {
   /**
-   * @param {number} [sampleRate=24000] — sample rate of incoming PCM data
+   * @param {number} [inputSampleRate=24000] — sample rate of incoming PCM data from Gemini
    * @param {number} [bufferDuration=1.0] — circular buffer length in seconds
    */
-  constructor(sampleRate = 24000, bufferDuration = 1.0) {
-    this._inputSampleRate = sampleRate;
+  constructor(inputSampleRate = 24000, bufferDuration = 1.0) {
+    this._inputSampleRate = inputSampleRate;
+    this._bufferDuration = bufferDuration;
     this._ctx = null;
     this._gainNode = null;
-    this._processorNode = null;
+    this._workletNode = null;
+    this._processorNode = null; // Fallback ScriptProcessor
 
-    // Circular buffer (Float32)
-    this._bufferSize = Math.ceil(sampleRate * bufferDuration);
-    this._buffer = new Float32Array(this._bufferSize);
+    // Fallback circular buffer state
+    this._bufferSize = 0;
+    this._buffer = null;
     this._writePos = 0;
     this._readPos = 0;
     this._bufferedSamples = 0;
@@ -25,17 +28,9 @@ class AudioPlayer {
     this._playing = false;
     this._level = 0;
     this._volume = 1;
-    this._underrun = false;
-
-    // Max tolerated latency in samples (~600 ms). If buffer exceeds this we skip.
-    this._maxLatencySamples = Math.ceil(sampleRate * 0.6);
+    this._isWorklet = false;
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Public API                                                         */
-  /* ------------------------------------------------------------------ */
-
-  /** true while actively playing */
   get isPlaying() {
     return this._playing;
   }
@@ -47,10 +42,10 @@ class AudioPlayer {
   async start() {
     if (this._playing) return;
 
-    // Create or re-use AudioContext at native rate (we resample manually)
+    // Initialize AudioContext without forcing non-standard sampleRate
     if (!this._ctx || this._ctx.state === 'closed') {
       const AC = window.AudioContext || window.webkitAudioContext;
-      this._ctx = new AC({ sampleRate: this._inputSampleRate });
+      this._ctx = new AC();
     }
 
     // Safari: must resume inside a user gesture
@@ -63,11 +58,43 @@ class AudioPlayer {
     this._gainNode.gain.value = this._volume;
     this._gainNode.connect(this._ctx.destination);
 
-    // ScriptProcessorNode (2048 frame buffer, mono in, mono out)
-    const FRAME = 2048;
-    this._processorNode = this._ctx.createScriptProcessor(FRAME, 1, 1);
-    this._processorNode.onaudioprocess = (e) => this._onProcess(e);
-    this._processorNode.connect(this._gainNode);
+    const contextRate = this._ctx.sampleRate;
+    const maxLatencySamples = Math.ceil(contextRate * 0.6);
+
+    // Try AudioWorklet first
+    try {
+      if (this._ctx.audioWorklet) {
+        await this._ctx.audioWorklet.addModule('audio-player.worklet.js');
+        this._workletNode = new AudioWorkletNode(this._ctx, 'audio-player-processor', {
+          outputChannelCount: [2]
+        });
+        this._workletNode.port.onmessage = (e) => {
+          if (e.data && e.data.type === 'level') {
+            this._level = e.data.level;
+          }
+        };
+        this._workletNode.connect(this._gainNode);
+        this._isWorklet = true;
+      } else {
+        throw new Error('AudioWorklet not supported');
+      }
+    } catch (err) {
+      console.warn('[AudioPlayer] AudioWorklet init failed, falling back to ScriptProcessor:', err);
+      this._isWorklet = false;
+
+      // Fallback: ScriptProcessorNode
+      this._bufferSize = Math.ceil(contextRate * this._bufferDuration);
+      this._buffer = new Float32Array(this._bufferSize);
+      this._writePos = 0;
+      this._readPos = 0;
+      this._bufferedSamples = 0;
+      this._maxLatencySamples = maxLatencySamples;
+
+      const FRAME = 2048;
+      this._processorNode = this._ctx.createScriptProcessor(FRAME, 1, 1);
+      this._processorNode.onaudioprocess = (e) => this._onFallbackProcess(e);
+      this._processorNode.connect(this._gainNode);
+    }
 
     this._playing = true;
   }
@@ -75,6 +102,13 @@ class AudioPlayer {
   /** Stop playback and release resources */
   stop() {
     this._playing = false;
+    if (this._workletNode) {
+      try {
+        this._workletNode.port.postMessage({ type: 'clear' });
+        this._workletNode.disconnect();
+      } catch (e) {}
+      this._workletNode = null;
+    }
     if (this._processorNode) {
       this._processorNode.disconnect();
       this._processorNode.onaudioprocess = null;
@@ -84,23 +118,103 @@ class AudioPlayer {
       this._gainNode.disconnect();
       this._gainNode = null;
     }
-    // Clear circular buffer
-    this._writePos = 0;
-    this._readPos = 0;
-    this._bufferedSamples = 0;
+    if (this._buffer) {
+      this._buffer.fill(0);
+      this._writePos = 0;
+      this._readPos = 0;
+      this._bufferedSamples = 0;
+    }
     this._level = 0;
-    this._buffer.fill(0);
   }
 
   /**
-   * Feed a base64-encoded Int16 PCM chunk into the playback buffer.
+   * Feed a base64-encoded Int16 PCM chunk (24 kHz) into the player.
    * @param {string} base64Chunk
    */
   feed(base64Chunk) {
-    const float32 = this._decodeBase64ToFloat32(base64Chunk);
-    if (!float32 || float32.length === 0) return;
+    if (!this._playing || !this._ctx) return;
 
-    // If buffer is getting dangerously full, skip oldest data to stay real-time
+    // 1. Decode Int16 PCM to Float32 at source rate (24000 Hz)
+    const rawFloat32 = this._decodeBase64ToFloat32(base64Chunk);
+    if (!rawFloat32 || rawFloat32.length === 0) return;
+
+    // 2. Resample Float32 to AudioContext target sampleRate if needed
+    const targetRate = this._ctx.sampleRate;
+    const resampledFloat32 = this._resample(rawFloat32, this._inputSampleRate, targetRate);
+
+    // 3. Send to Worklet or Fallback buffer
+    if (this._isWorklet && this._workletNode) {
+      const maxLatencySamples = Math.ceil(targetRate * 0.6);
+      this._workletNode.port.postMessage({
+        type: 'feed',
+        samples: resampledFloat32,
+        maxLatencySamples: maxLatencySamples
+      });
+    } else if (this._buffer) {
+      this._feedFallback(resampledFloat32);
+    }
+  }
+
+  /** Returns current RMS audio level (0–1) */
+  getLevel() {
+    return this._level;
+  }
+
+  /** Set volume (0–1) */
+  setVolume(value) {
+    this._volume = Math.max(0, Math.min(1, value));
+    if (this._gainNode && this._ctx) {
+      this._gainNode.gain.setValueAtTime(this._volume, this._ctx.currentTime);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Internals                                                         */
+  /* ------------------------------------------------------------------ */
+
+  /** Linear resampling helper */
+  _resample(samples, sourceRate, targetRate) {
+    if (!samples || sourceRate === targetRate) return samples;
+    const ratio = targetRate / sourceRate;
+    const newLength = Math.round(samples.length * ratio);
+    const result = new Float32Array(newLength);
+    for (let i = 0; i < newLength; i++) {
+      const originPos = i / ratio;
+      const index = Math.floor(originPos);
+      const fraction = originPos - index;
+      const nextIndex = Math.min(index + 1, samples.length - 1);
+      result[i] = samples[index] * (1 - fraction) + samples[nextIndex] * fraction;
+    }
+    return result;
+  }
+
+  /** Decode base64 PCM Int16 safely with memory alignment check */
+  _decodeBase64ToFloat32(base64) {
+    try {
+      const binaryStr = atob(base64);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const pairCount = Math.floor(bytes.byteLength / 2);
+      if (pairCount === 0) return null;
+
+      // Explicit byteOffset and length to prevent iOS Safari memory alignment RangeError
+      const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, pairCount);
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) {
+        float32[i] = int16[i] / 32768;
+      }
+      return float32;
+    } catch (err) {
+      console.warn('[AudioPlayer] Failed to decode audio chunk:', err);
+      return null;
+    }
+  }
+
+  /** ScriptProcessor fallback feed */
+  _feedFallback(float32) {
     if (this._bufferedSamples + float32.length > this._bufferSize) {
       const overflow = (this._bufferedSamples + float32.length) - this._maxLatencySamples;
       if (overflow > 0) {
@@ -109,8 +223,6 @@ class AudioPlayer {
         this._bufferedSamples -= skip;
       }
     }
-
-    // Write into circular buffer
     for (let i = 0; i < float32.length; i++) {
       this._buffer[this._writePos] = float32[i];
       this._writePos = (this._writePos + 1) % this._bufferSize;
@@ -118,32 +230,8 @@ class AudioPlayer {
     this._bufferedSamples += float32.length;
   }
 
-  /**
-   * Returns current RMS audio level (0–1) for visualisation.
-   */
-  getLevel() {
-    return this._level;
-  }
-
-  /**
-   * Set playback volume.
-   * @param {number} value 0–1
-   */
-  setVolume(value) {
-    this._volume = Math.max(0, Math.min(1, value));
-    if (this._gainNode) {
-      this._gainNode.gain.setValueAtTime(this._volume, this._ctx.currentTime);
-    }
-  }
-
-  /* ------------------------------------------------------------------ */
-  /*  Internals                                                          */
-  /* ------------------------------------------------------------------ */
-
-  /**
-   * ScriptProcessorNode callback — pulls samples from the circular buffer.
-   */
-  _onProcess(event) {
+  /** ScriptProcessor fallback callback */
+  _onFallbackProcess(event) {
     const output = event.outputBuffer.getChannelData(0);
     const len = output.length;
     let sumSq = 0;
@@ -155,41 +243,12 @@ class AudioPlayer {
         sumSq += sample * sample;
         this._readPos = (this._readPos + 1) % this._bufferSize;
         this._bufferedSamples--;
-        this._underrun = false;
       } else {
-        // Buffer underrun — output silence
         output[i] = 0;
-        this._underrun = true;
       }
     }
 
-    // RMS level (smoothed)
     const rms = Math.sqrt(sumSq / len);
-    // Exponential smoothing
     this._level = this._level * 0.7 + rms * 0.3;
-  }
-
-  /**
-   * Decode a base64 string containing Int16 PCM into a Float32Array
-   * normalised to [-1, 1].
-   */
-  _decodeBase64ToFloat32(base64) {
-    try {
-      const binaryStr = atob(base64);
-      const len = binaryStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-      const int16 = new Int16Array(bytes.buffer);
-      const float32 = new Float32Array(int16.length);
-      for (let i = 0; i < int16.length; i++) {
-        float32[i] = int16[i] / 32768;
-      }
-      return float32;
-    } catch (err) {
-      console.warn('[AudioPlayer] Failed to decode chunk:', err);
-      return null;
-    }
   }
 }

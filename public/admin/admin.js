@@ -1,8 +1,8 @@
 /**
  * TransAudio — Admin Dashboard Logic
- * 
- * Gère la connexion WebSocket, la capture audio via AudioWorklet,
- * l'envoi de données PCM au serveur, et toute la logique UI.
+ *
+ * Handles WebSocket communication, AudioWorklet microphone acquisition,
+ * sending PCM chunks to the backend, and updating the UI state.
  */
 
 (function () {
@@ -68,9 +68,12 @@
   // ====================================================
   // CLIENT URL
   // ====================================================
-  function setClientUrl() {
-    const url = `${location.protocol}//${location.host}`;
+  function setClientUrl(customUrl) {
+    const url = customUrl || `${location.protocol}//${location.host}`;
     dom.clientUrl.textContent = url;
+    if (window.QRCodeGenerator && dom.qrCode) {
+      window.QRCodeGenerator.render(dom.qrCode, url);
+    }
   }
 
   // ====================================================
@@ -91,12 +94,10 @@
       state.wsConnected = true;
       state.reconnectAttempts = 0;
       updateWsStatus('connected');
-      showToast('Connecté au serveur', 'success');
+      showToast('Connecté au serveur d\'administration', 'success');
 
-      // Demander le statut immédiatement
       sendWsMessage({ type: 'get_status' });
 
-      // Polling du statut toutes les 5 secondes
       clearInterval(state.statusPollInterval);
       state.statusPollInterval = setInterval(() => {
         if (state.wsConnected) {
@@ -115,9 +116,7 @@
       }
     };
 
-    state.ws.onerror = () => {
-      // L'événement onclose sera déclenché après
-    };
+    state.ws.onerror = () => {};
 
     state.ws.onmessage = (event) => {
       handleWsMessage(event.data);
@@ -168,6 +167,7 @@
     const dots = [dom.wsStatusDot, dom.wsStatusDotFooter];
 
     dots.forEach(dot => {
+      if (!dot) return;
       dot.className = 'status-dot';
       if (status === 'connected') dot.classList.add('connected');
       else if (status === 'reconnecting') dot.classList.add('reconnecting');
@@ -179,20 +179,18 @@
       reconnecting: 'Reconnexion…',
     };
 
-    dom.wsStatusText.textContent = labels[status] || status;
-    dom.wsStatusTextFooter.textContent = `WebSocket : ${labels[status] || status}`;
+    if (dom.wsStatusText) dom.wsStatusText.textContent = labels[status] || status;
+    if (dom.wsStatusTextFooter) dom.wsStatusTextFooter.textContent = `WebSocket : ${labels[status] || status}`;
   }
 
   // ====================================================
   // DASHBOARD STATUS UPDATE
   // ====================================================
   function updateDashboardStatus(msg) {
-    const { streaming, sessions, clients } = msg;
+    const { streaming, sessions, clients, serverUrl } = msg;
 
-    // Streaming state
-    if (typeof streaming === 'boolean' && streaming !== state.isStreaming) {
-      // Le serveur nous dit que le streaming est actif/inactif
-      // mais on ne change l'UI que si c'est incohérent
+    if (serverUrl) {
+      setClientUrl(serverUrl);
     }
 
     // Sessions
@@ -217,15 +215,18 @@
         en: '🇬🇧 Anglais',
         es: '🇪🇸 Espagnol',
         fr: '🇫🇷 Français',
-        pt: '🇧🇷 Portugais',
+        pt: '🇵🇹 Portugais',
         de: '🇩🇪 Allemand',
         zh: '🇨🇳 Chinois',
         ar: '🇸🇦 Arabe',
+        sw: '🇰🇪 Swahili',
+        ln: '🇨🇩 Lingala'
       };
 
       const statusLabels = {
         connected: 'Connecté',
-        connecting: 'Connexion…',
+        reconnecting: 'Reconnexion…',
+        setup_pending: 'Initialisation…',
         error: 'Erreur',
         disconnected: 'Déconnecté',
       };
@@ -258,7 +259,6 @@
   // ====================================================
   async function enumerateDevices() {
     try {
-      // Demander une permission temporaire pour accéder aux noms des périphériques
       const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       tempStream.getTracks().forEach(t => t.stop());
 
@@ -279,9 +279,9 @@
         dom.audioDeviceSelect.appendChild(option);
       });
 
-      // Sélectionner le premier par défaut
       state.selectedDeviceId = audioInputs[0].deviceId;
       updateDeviceLabel();
+      startAudioCapture();
     } catch (err) {
       console.error('Erreur énumération périphériques:', err);
       dom.audioDeviceSelect.innerHTML = '<option value="">Erreur d\'accès aux périphériques</option>';
@@ -304,8 +304,9 @@
   // AUDIO CAPTURE
   // ====================================================
   async function startAudioCapture() {
+    stopAudioCapture();
+
     try {
-      // Contraintes audio
       const constraints = {
         audio: {
           deviceId: state.selectedDeviceId ? { exact: state.selectedDeviceId } : undefined,
@@ -319,34 +320,31 @@
 
       state.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
 
-      // Créer l'AudioContext
       state.audioContext = new (window.AudioContext || window.webkitAudioContext)({
         sampleRate: 48000,
       });
 
-      // Charger le worklet
       await state.audioContext.audioWorklet.addModule('/admin/audio-processor.worklet.js');
 
-      // Créer le nœud worklet
       state.workletNode = new AudioWorkletNode(state.audioContext, 'audio-capture-processor');
 
-      // Écouter les messages du worklet
       state.workletNode.port.onmessage = (event) => {
         const msg = event.data;
 
         if (msg.type === 'audio' && msg.buffer) {
-          // Convertir ArrayBuffer en base64 et envoyer au serveur
-          const base64 = arrayBufferToBase64(msg.buffer);
-          sendWsMessage({ type: 'audio', data: base64 });
+          // Only send audio chunks to server when streaming is active
+          if (state.isStreaming) {
+            const base64 = arrayBufferToBase64(msg.buffer);
+            sendWsMessage({ type: 'audio', data: base64 });
+          }
         } else if (msg.type === 'level') {
+          // Always update VU level for real-time meter preview
           state.vuLevel = msg.level;
         }
       };
 
-      // Connecter source → worklet
       const source = state.audioContext.createMediaStreamSource(state.mediaStream);
       source.connect(state.workletNode);
-      // Ne pas connecter à la destination (pas de retour audio)
 
       return true;
     } catch (err) {
@@ -377,10 +375,8 @@
   // ====================================================
   async function toggleStreaming() {
     if (state.isStreaming) {
-      // STOP
       stopStreaming();
     } else {
-      // START
       await startStreaming();
     }
   }
@@ -391,7 +387,6 @@
       return;
     }
 
-    // Récupérer les langues sélectionnées
     const languages = getSelectedLanguages();
     if (languages.length === 0) {
       showToast('Veuillez sélectionner au moins une langue.', 'warning');
@@ -400,17 +395,17 @@
 
     dom.btnToggle.disabled = true;
 
-    // Démarrer la capture audio
-    const success = await startAudioCapture();
-    if (!success) {
-      dom.btnToggle.disabled = false;
-      return;
+    // Ensure audio capture is running
+    if (!state.mediaStream) {
+      const success = await startAudioCapture();
+      if (!success) {
+        dom.btnToggle.disabled = false;
+        return;
+      }
     }
 
-    // Envoyer la commande start au serveur
     sendWsMessage({ type: 'start', languages: languages });
 
-    // Mettre à jour l'UI
     state.isStreaming = true;
     updateToggleButton();
     startUptime();
@@ -420,13 +415,9 @@
   }
 
   function stopStreaming() {
-    // Envoyer la commande stop
     sendWsMessage({ type: 'stop' });
 
-    // Arrêter la capture
-    stopAudioCapture();
-
-    // Mettre à jour l'UI
+    // Keep audio capture active for local VU preview, just mark streaming as inactive
     state.isStreaming = false;
     updateToggleButton();
     stopUptime();
@@ -455,33 +446,30 @@
   // VU METER ANIMATION
   // ====================================================
   function startVuMeterAnimation() {
-    let smoothLevel = 0;
+    let smoothRms = 0;
 
     function animate() {
-      // Lissage exponentiel
-      const target = state.vuLevel;
-      const attack = 0.3;  // Montée rapide
-      const release = 0.08; // Descente lente
+      const targetRms = state.vuLevel;
+      const attack = 0.35;
+      const release = 0.08;
 
-      if (target > smoothLevel) {
-        smoothLevel += (target - smoothLevel) * attack;
+      if (targetRms > smoothRms) {
+        smoothRms += (targetRms - smoothRms) * attack;
       } else {
-        smoothLevel += (target - smoothLevel) * release;
+        smoothRms += (targetRms - smoothRms) * release;
       }
 
-      // Clamp
-      smoothLevel = Math.max(0, Math.min(1, smoothLevel));
+      // Calculate dB logarithmic scale: dB = 20 * log10(rms)
+      if (smoothRms > 0.0005) {
+        const db = Math.max(-60, Math.min(0, 20 * Math.log10(smoothRms)));
+        // Map dB scale [-60 dB, 0 dB] to percentage [0%, 100%]
+        const pct = ((db + 60) / 60) * 100;
 
-      // Mettre à jour le DOM
-      const pct = smoothLevel * 100;
-      dom.vuMeterFill.style.width = `${pct}%`;
-
-      // Calculer le dB pour l'affichage
-      if (smoothLevel > 0.001) {
-        const db = Math.round((smoothLevel * 60) - 60);
-        dom.vuLevelDb.textContent = `${db} dB`;
+        if (dom.vuMeterFill) dom.vuMeterFill.style.width = `${pct}%`;
+        if (dom.vuLevelDb) dom.vuLevelDb.textContent = `${Math.round(db)} dB`;
       } else {
-        dom.vuLevelDb.textContent = '-∞ dB';
+        if (dom.vuMeterFill) dom.vuMeterFill.style.width = '0%';
+        if (dom.vuLevelDb) dom.vuLevelDb.textContent = '-∞ dB';
       }
 
       state.vuAnimationFrame = requestAnimationFrame(animate);
@@ -503,7 +491,7 @@
   function stopUptime() {
     clearInterval(state.uptimeInterval);
     state.uptimeStart = null;
-    dom.uptimeValue.textContent = '00:00:00';
+    if (dom.uptimeValue) dom.uptimeValue.textContent = '00:00:00';
   }
 
   function updateUptime() {
@@ -512,7 +500,7 @@
     const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
     const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
     const s = String(elapsed % 60).padStart(2, '0');
-    dom.uptimeValue.textContent = `${h}:${m}:${s}`;
+    if (dom.uptimeValue) dom.uptimeValue.textContent = `${h}:${m}:${s}`;
   }
 
   // ====================================================
@@ -530,9 +518,8 @@
     toast.className = `toast ${type}`;
     toast.innerHTML = `<span>${icons[type] || ''}</span><span>${escapeHtml(message)}</span>`;
 
-    dom.toastContainer.appendChild(toast);
+    if (dom.toastContainer) dom.toastContainer.appendChild(toast);
 
-    // Auto-dismiss après 4 secondes
     setTimeout(() => {
       toast.classList.add('toast-exit');
       toast.addEventListener('animationend', () => toast.remove());
@@ -543,17 +530,15 @@
   // EVENT LISTENERS
   // ====================================================
   function setupEventListeners() {
-    // Sélection de périphérique
     dom.audioDeviceSelect.addEventListener('change', () => {
       updateDeviceLabel();
+      startAudioCapture();
     });
 
-    // Bouton Start/Stop
     dom.btnToggle.addEventListener('click', () => {
       toggleStreaming();
     });
 
-    // Copier URL
     dom.btnCopyUrl.addEventListener('click', () => {
       const url = dom.clientUrl.textContent;
       if (url && url !== '—') {
@@ -562,14 +547,12 @@
           dom.btnCopyUrl.textContent = '✅ Copié !';
           setTimeout(() => { dom.btnCopyUrl.textContent = '📋 Copier'; }, 2000);
         }).catch(() => {
-          // Fallback
           selectText(dom.clientUrl);
           showToast('Sélectionnez et copiez l\'URL manuellement.', 'info');
         });
       }
     });
 
-    // Détecter les changements de périphériques
     navigator.mediaDevices.addEventListener('devicechange', () => {
       enumerateDevices();
     });

@@ -90,7 +90,7 @@
           <label class="language-checkbox">
             <input type="checkbox" name="lang" value="pt">
             <span class="checkmark"></span>
-            <span class="lang-flag">🇧🇷</span>
+            <span class="lang-flag">🇵🇹</span>
             <span class="lang-label">Portugais</span>
           </label>
           <label class="language-checkbox">
@@ -170,9 +170,8 @@
             </div>
             <div class="client-url-label" style="margin-top:8px;">Partagez cette adresse avec les fidèles pour qu'ils reçoivent la traduction en temps réel sur leur smartphone.</div>
           </div>
-          <div class="qr-placeholder" id="qrCode">
+          <div class="qr-container" id="qrCode" style="display:flex; justify-content:center; align-items:center; background:rgba(255,255,255,0.05); border-radius:12px; padding:12px;">
             <span class="qr-icon">⬜</span>
-            QR Code
           </div>
         </div>
       </div>
@@ -193,6 +192,7 @@
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <script src="vendor/qrcode.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

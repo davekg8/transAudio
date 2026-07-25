@@ -2,20 +2,26 @@
 
 const WebSocket = require('ws');
 const EventEmitter = require('events');
+const Logger = require('./logger');
 
 // Gemini Multimodal Live API endpoint
 const GEMINI_WS_URL =
   'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 
+// IMPORTANT: Only gemini-*-live-translate-preview models support translationConfig.
+// Do NOT fall back to generic Gemini models — they will reject the translationConfig payload.
+const LIVE_TRANSLATE_MODEL = 'models/gemini-3.5-live-translate-preview';
+
 /**
  * GeminiTranslator — manages a single WebSocket connection to the
- * Gemini 3.5 Live Translate API for one target language.
+ * Gemini Live Translate API for one target language.
  *
  * Events:
- *   'audio'    (base64PcmChunk)  — translated audio (PCM 24 kHz mono)
- *   'connected'                  — WebSocket open & setup acknowledged
- *   'disconnected'               — WebSocket closed
- *   'error'    (Error)           — any error
+ *   'audio'        (base64PcmChunk)  — translated audio (PCM 24 kHz mono)
+ *   'connected'                      — WebSocket open & setup acknowledged
+ *   'reconnecting' (attempt)         — session temporarily disconnected, attempting reconnect
+ *   'disconnected'                   — WebSocket closed
+ *   'error'        (Error)           — any error
  */
 class GeminiTranslator extends EventEmitter {
   /**
@@ -23,43 +29,48 @@ class GeminiTranslator extends EventEmitter {
    * @param {string} opts.apiKey         Gemini API key
    * @param {string} opts.targetLanguage Target language code (e.g. "en")
    * @param {string} [opts.voiceName]    TTS voice name (default "Kore")
+   * @param {string} [opts.model]        Gemini model name
    */
-  constructor({ apiKey, targetLanguage, voiceName = 'Kore' }) {
+  constructor({ apiKey, targetLanguage, voiceName = 'Kore', model }) {
     super();
     this._apiKey = apiKey;
     this._targetLanguage = targetLanguage;
     this._voiceName = voiceName;
+    // Only Live Translate models support translationConfig — never fall back to general models.
+    this._modelName = model || process.env.GEMINI_MODEL || LIVE_TRANSLATE_MODEL;
 
+    this._logger = new Logger(`GeminiTranslator/${this._targetLanguage}`);
     this._ws = null;
     this._connected = false;
     this._setupComplete = false;
     this._intentionalClose = false;
+    this._sendCount = 0;
 
     // Reconnection state
     this._reconnectAttempts = 0;
     this._maxReconnectAttempts = 8;
     this._reconnectTimer = null;
+
+
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Public API                                                        */
-  /* ------------------------------------------------------------------ */
-
-  /** Whether the translator is connected and setup is complete. */
   get isConnected() {
     return this._connected && this._setupComplete;
   }
 
-  /** Current connection status as a human-readable string. */
   get status() {
     if (this.isConnected) return 'connected';
     if (this._connected) return 'setup_pending';
+    if (this._reconnectTimer) return 'reconnecting';
     return 'disconnected';
   }
 
+  get modelName() {
+    return this._modelName;
+  }
+
   /**
-   * Open the WebSocket to Gemini and perform the setup handshake.
-   * Resolves once setup is acknowledged by the server.
+   * Open WebSocket to Gemini and perform setup handshake.
    */
   async connect() {
     if (this._connected) return;
@@ -67,42 +78,39 @@ class GeminiTranslator extends EventEmitter {
     this._intentionalClose = false;
 
     return new Promise((resolve, reject) => {
+      // Build connection URL, but NEVER log the API key
       const url = `${GEMINI_WS_URL}?key=${this._apiKey}`;
 
-      this._log('Connecting to Gemini Live Translate API…');
+      this._logger.info(`Connecting to Gemini Live API using model: ${this._modelName}`);
       this._ws = new WebSocket(url);
 
-      // ---------- open ----------
       this._ws.on('open', () => {
         this._connected = true;
         this._reconnectAttempts = 0;
-        this._log('WebSocket open — sending setup message');
+        this._logger.info('WebSocket connected. Sending setup payload…');
         this._sendSetup();
       });
 
-      // ---------- message ----------
       this._ws.on('message', (raw) => {
         try {
           const msg = JSON.parse(raw.toString());
-          this._handleMessage(msg, resolve);
+          this._handleMessage(msg, resolve, reject);
         } catch (err) {
-          this._log(`Failed to parse message: ${err.message}`);
+          this._logger.error('Failed to parse incoming message', err);
         }
       });
 
-      // ---------- error ----------
       this._ws.on('error', (err) => {
-        this._log(`WebSocket error: ${err.message}`);
+        this._logger.error('WebSocket connection error', err);
         this.emit('error', err);
         if (!this._setupComplete) reject(err);
       });
 
-      // ---------- close ----------
       this._ws.on('close', (code, reason) => {
         const wasConnected = this._connected;
         this._connected = false;
         this._setupComplete = false;
-        this._log(`WebSocket closed (code=${code}, reason=${reason || 'none'})`);
+        this._logger.warn(`WebSocket connection closed (code=${code}, reason=${reason || 'none'})`);
         this.emit('disconnected');
 
         if (!this._intentionalClose && wasConnected) {
@@ -113,24 +121,22 @@ class GeminiTranslator extends EventEmitter {
   }
 
   /**
-   * Send a PCM audio chunk to Gemini for translation.
-   * @param {string} base64PcmChunk Base64-encoded PCM 16 kHz mono audio
+   * Send PCM 16kHz mono audio chunk to Gemini for translation.
+   * @param {string} base64PcmChunk
    */
   sendAudio(base64PcmChunk) {
     if (!this.isConnected) {
       if (!this._dropWarnShown) {
-        this._log('⚠ Audio dropped — not yet connected/setup complete');
+        this._logger.warn('Audio chunk dropped — translator not in connected state');
         this._dropWarnShown = true;
       }
       return;
     }
     this._dropWarnShown = false;
 
-    // Log periodically to confirm audio is flowing to Gemini
-    if (!this._sendCount) this._sendCount = 0;
     this._sendCount++;
     if (this._sendCount % 100 === 1) {
-      this._log(`Sending audio chunk #${this._sendCount} to Gemini (${base64PcmChunk.length} chars base64)`);
+      this._logger.info(`Audio chunk #${this._sendCount} sent to Gemini (${base64PcmChunk.length} bytes base64)`);
     }
 
     const payload = {
@@ -147,24 +153,16 @@ class GeminiTranslator extends EventEmitter {
     this._wsSend(payload);
   }
 
-  /**
-   * Register a callback for translated audio chunks.
-   * Shortcut for `on('audio', callback)`.
-   * @param {(base64Chunk: string) => void} callback
-   */
   onAudio(callback) {
     this.on('audio', callback);
   }
 
-  /**
-   * Gracefully close the connection (no automatic reconnect).
-   */
   disconnect() {
     this._intentionalClose = true;
     clearTimeout(this._reconnectTimer);
 
     if (this._ws) {
-      this._log('Disconnecting…');
+      this._logger.info('Gracefully disconnecting session…');
       this._ws.close(1000, 'Client disconnect');
       this._ws = null;
     }
@@ -177,23 +175,16 @@ class GeminiTranslator extends EventEmitter {
   /*  Internal helpers                                                   */
   /* ------------------------------------------------------------------ */
 
-  /** Send the initial setup/config message. */
   _sendSetup() {
+    // Payload aligned with the official Gemini Live Translate API spec.
+    // The translationConfig is only supported by gemini-*-live-translate-preview models.
     const setup = {
       setup: {
-        model: 'models/gemini-3.5-live-translate-preview',
+        model: this._modelName,
         generationConfig: {
           responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: this._voiceName,
-              },
-            },
-          },
           translationConfig: {
             targetLanguageCode: this._targetLanguage,
-            echoTargetLanguage: true,
           },
         },
       },
@@ -202,16 +193,22 @@ class GeminiTranslator extends EventEmitter {
     this._wsSend(setup);
   }
 
-  /**
-   * Process an incoming JSON message from Gemini.
-   * @param {Object} msg           Parsed message
-   * @param {Function} onSetupDone Resolve callback from connect()
-   */
-  _handleMessage(msg, onSetupDone) {
+  _handleMessage(msg, onSetupDone, onSetupReject) {
+    // Server error
+    if (msg.error) {
+      const errMsg = msg.error.message || JSON.stringify(msg.error);
+      this._logger.error(`Gemini API Error: ${errMsg}`);
+      this.emit('error', new Error(errMsg));
+      if (!this._setupComplete && typeof onSetupReject === 'function') {
+        onSetupReject(new Error(errMsg));
+      }
+      return;
+    }
+
     // Setup acknowledgement
     if (msg.setupComplete) {
       this._setupComplete = true;
-      this._log('Setup complete — ready to translate');
+      this._logger.info(`Setup complete — model=${this._modelName}, lang=${this._targetLanguage}`);
       this.emit('connected');
       if (typeof onSetupDone === 'function') onSetupDone();
       return;
@@ -227,38 +224,31 @@ class GeminiTranslator extends EventEmitter {
     }
   }
 
-  /** Safely JSON-stringify and send over the WebSocket. */
   _wsSend(obj) {
     if (this._ws && this._ws.readyState === WebSocket.OPEN) {
       this._ws.send(JSON.stringify(obj));
     }
   }
 
-  /** Schedule a reconnection with exponential back-off. */
   _scheduleReconnect() {
     if (this._reconnectAttempts >= this._maxReconnectAttempts) {
-      this._log('Max reconnect attempts reached — giving up');
+      this._logger.error('Max reconnect attempts reached. Giving up.');
       this.emit('error', new Error('Max reconnect attempts reached'));
       return;
     }
 
     const delay = Math.min(1000 * Math.pow(2, this._reconnectAttempts), 30000);
     this._reconnectAttempts++;
-    this._log(`Reconnecting in ${delay}ms (attempt ${this._reconnectAttempts}/${this._maxReconnectAttempts})…`);
+    this._logger.warn(`Scheduling reconnection in ${delay}ms (attempt ${this._reconnectAttempts}/${this._maxReconnectAttempts})…`);
+    this.emit('reconnecting', this._reconnectAttempts);
 
     this._reconnectTimer = setTimeout(async () => {
       try {
         await this.connect();
       } catch (err) {
-        this._log(`Reconnect failed: ${err.message}`);
+        this._logger.error('Reconnection attempt failed', err);
       }
     }, delay);
-  }
-
-  /** Prefixed logger. */
-  _log(message) {
-    const ts = new Date().toISOString();
-    console.log(`[${ts}] [GeminiTranslator/${this._targetLanguage}] ${message}`);
   }
 }
 

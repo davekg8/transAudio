@@ -2,6 +2,7 @@
 
 const GeminiTranslator = require('./gemini-translator');
 const EventEmitter = require('events');
+const Logger = require('./logger');
 
 /**
  * SessionManager — orchestrates one GeminiTranslator per target language.
@@ -10,48 +11,49 @@ const EventEmitter = require('events');
  *   • Start / stop translation sessions for a list of languages
  *   • Fan-out a single audio source to every active translator
  *   • Expose per-language translated-audio callbacks
- *   • Provide a status snapshot for the admin dashboard
+ *   • Provide a status snapshot for the admin dashboard and public clients
  */
 class SessionManager extends EventEmitter {
   /**
    * @param {Object} opts
    * @param {string} opts.apiKey  Gemini API key
+   * @param {string} [opts.model] Gemini model
    */
-  constructor({ apiKey }) {
+  constructor({ apiKey, model }) {
     super();
     this._apiKey = apiKey;
+    this._model = model || process.env.GEMINI_MODEL;
+    this._logger = new Logger('SessionManager');
 
     /** @type {Map<string, GeminiTranslator>} language → translator */
     this._translators = new Map();
 
     this._streaming = false;
+    this._audioChunkCount = 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Public API                                                        */
-  /* ------------------------------------------------------------------ */
-
-  /** Whether at least one session is active. */
   get isStreaming() {
     return this._streaming;
   }
 
   /**
    * Start translation sessions for the given languages.
-   * @param {string[]} languages  Array of BCP-47 codes, e.g. ["en","fr"]
+   * @param {string[]} languages Array of BCP-47 codes, e.g. ["en","fr"]
    */
   async startSession(languages) {
     if (this._streaming) {
-      console.log('[SessionManager] Already streaming — stopping first');
+      this._logger.info('Already streaming — stopping existing sessions first');
       await this.stopSession();
     }
 
-    console.log(`[SessionManager] Starting sessions for: ${languages.join(', ')}`);
+    this._logger.info(`Starting translation sessions for: ${languages.join(', ')}`);
+    this._audioChunkCount = 0;
 
     const connectPromises = languages.map(async (lang) => {
       const translator = new GeminiTranslator({
         apiKey: this._apiKey,
         targetLanguage: lang,
+        model: this._model
       });
 
       // Forward translated audio as events
@@ -60,17 +62,22 @@ class SessionManager extends EventEmitter {
       });
 
       translator.on('connected', () => {
-        console.log(`[SessionManager] Session ${lang} connected`);
-        this.emit('session_update');
+        this._logger.info(`Session [${lang}] connected successfully`);
+        this.emit('session_status', { language: lang, status: 'connected' });
+      });
+
+      translator.on('reconnecting', (attempt) => {
+        this._logger.warn(`Session [${lang}] reconnecting (attempt ${attempt})`);
+        this.emit('session_status', { language: lang, status: 'reconnecting', attempt });
       });
 
       translator.on('disconnected', () => {
-        console.log(`[SessionManager] Session ${lang} disconnected`);
-        this.emit('session_update');
+        this._logger.warn(`Session [${lang}] disconnected`);
+        this.emit('session_status', { language: lang, status: 'disconnected' });
       });
 
       translator.on('error', (err) => {
-        console.error(`[SessionManager] Session ${lang} error: ${err.message}`);
+        this._logger.error(`Session [${lang}] error`, err);
         this.emit('session_error', { language: lang, error: err.message });
       });
 
@@ -79,34 +86,42 @@ class SessionManager extends EventEmitter {
       try {
         await translator.connect();
       } catch (err) {
-        console.error(`[SessionManager] Failed to connect ${lang}: ${err.message}`);
+        this._logger.error(`Failed to connect session [${lang}]`, err);
       }
     });
 
     await Promise.allSettled(connectPromises);
     this._streaming = true;
-    console.log('[SessionManager] All sessions started');
+    this._logger.info('All translation sessions initiated');
   }
 
   /**
    * Stop all active translation sessions.
    */
   async stopSession() {
-    console.log('[SessionManager] Stopping all sessions');
+    this._logger.info('Stopping all active translation sessions');
     for (const [lang, translator] of this._translators) {
       translator.disconnect();
       translator.removeAllListeners();
-      console.log(`[SessionManager] Session ${lang} stopped`);
+      this._logger.info(`Session [${lang}] stopped`);
     }
     this._translators.clear();
     this._streaming = false;
+    this._audioChunkCount = 0;
   }
 
   /**
    * Feed an audio chunk to ALL active translators.
-   * @param {string} base64PcmChunk  Base64-encoded PCM 16 kHz mono
+   * @param {string} base64PcmChunk Base64-encoded PCM 16 kHz mono
    */
   feedAudio(base64PcmChunk) {
+    if (!this._streaming) return;
+
+    this._audioChunkCount++;
+    if (this._audioChunkCount % 100 === 1) {
+      this._logger.info(`Audio chunk #${this._audioChunkCount} dispatched to ${this._translators.size} session(s)`);
+    }
+
     for (const translator of this._translators.values()) {
       translator.sendAudio(base64PcmChunk);
     }
@@ -114,16 +129,15 @@ class SessionManager extends EventEmitter {
 
   /**
    * Register a callback for translated audio of a specific language.
-   * @param {string}   language  BCP-47 code
-   * @param {Function} callback  (base64Chunk) => void
+   * @param {string}   language
+   * @param {Function} callback (base64Chunk) => void
    */
   onTranslatedAudio(language, callback) {
     this.on(`audio:${language}`, callback);
   }
 
   /**
-   * Return a status snapshot for the admin dashboard.
-   * @returns {{ streaming: boolean, sessions: Object<string, string> }}
+   * Return status snapshot for admin/clients.
    */
   getStatus() {
     const sessions = {};
