@@ -2,7 +2,7 @@
  * AudioPlayer — Streaming PCM playback engine
  * Decodes base64-encoded Int16 PCM chunks (24 kHz) and plays them continuously.
  * Uses AudioWorkletNode with fallback to ScriptProcessorNode.
- * Includes memory alignment safety and context rate resampling.
+ * Includes memory alignment safety, continuous resampling, and jitter buffering.
  */
 class AudioPlayer {
   /**
@@ -15,7 +15,10 @@ class AudioPlayer {
     this._ctx = null;
     this._gainNode = null;
     this._workletNode = null;
-    this._processorNode = null; // Fallback ScriptProcessor
+    this._processorNode = null;
+
+    // Resampler boundary state
+    this._lastResampleSample = 0;
 
     // Fallback circular buffer state
     this._bufferSize = 0;
@@ -23,6 +26,7 @@ class AudioPlayer {
     this._writePos = 0;
     this._readPos = 0;
     this._bufferedSamples = 0;
+    this._isFallbackBuffering = true;
 
     // State
     this._playing = false;
@@ -42,18 +46,20 @@ class AudioPlayer {
   async start() {
     if (this._playing) return;
 
-    // Initialize AudioContext without forcing non-standard sampleRate
+    // Try creating AudioContext at native 24kHz rate first for zero-overhead native playback
     if (!this._ctx || this._ctx.state === 'closed') {
       const AC = window.AudioContext || window.webkitAudioContext;
-      this._ctx = new AC();
+      try {
+        this._ctx = new AC({ sampleRate: this._inputSampleRate });
+      } catch (e) {
+        this._ctx = new AC();
+      }
     }
 
-    // Safari: must resume inside a user gesture
     if (this._ctx.state === 'suspended') {
       await this._ctx.resume();
     }
 
-    // GainNode for volume control
     this._gainNode = this._ctx.createGain();
     this._gainNode.gain.value = this._volume;
     this._gainNode.connect(this._ctx.destination);
@@ -61,7 +67,6 @@ class AudioPlayer {
     const contextRate = this._ctx.sampleRate;
     const maxLatencySamples = Math.ceil(contextRate * 0.6);
 
-    // Try AudioWorklet first
     try {
       if (this._ctx.audioWorklet) {
         await this._ctx.audioWorklet.addModule('audio-player.worklet.js');
@@ -82,13 +87,13 @@ class AudioPlayer {
       console.warn('[AudioPlayer] AudioWorklet init failed, falling back to ScriptProcessor:', err);
       this._isWorklet = false;
 
-      // Fallback: ScriptProcessorNode
       this._bufferSize = Math.ceil(contextRate * this._bufferDuration);
       this._buffer = new Float32Array(this._bufferSize);
       this._writePos = 0;
       this._readPos = 0;
       this._bufferedSamples = 0;
       this._maxLatencySamples = maxLatencySamples;
+      this._isFallbackBuffering = true;
 
       const FRAME = 2048;
       this._processorNode = this._ctx.createScriptProcessor(FRAME, 1, 1);
@@ -125,6 +130,7 @@ class AudioPlayer {
       this._bufferedSamples = 0;
     }
     this._level = 0;
+    this._lastResampleSample = 0;
   }
 
   /**
@@ -134,11 +140,11 @@ class AudioPlayer {
   feed(base64Chunk) {
     if (!this._playing || !this._ctx) return;
 
-    // 1. Decode Int16 PCM to Float32 at source rate (24000 Hz)
+    // 1. Decode Int16 PCM to Float32 at 24kHz
     const rawFloat32 = this._decodeBase64ToFloat32(base64Chunk);
     if (!rawFloat32 || rawFloat32.length === 0) return;
 
-    // 2. Resample Float32 to AudioContext target sampleRate if needed
+    // 2. Resample Float32 to AudioContext target sampleRate if different from 24kHz
     const targetRate = this._ctx.sampleRate;
     const resampledFloat32 = this._resample(rawFloat32, this._inputSampleRate, targetRate);
 
@@ -148,19 +154,18 @@ class AudioPlayer {
       this._workletNode.port.postMessage({
         type: 'feed',
         samples: resampledFloat32,
+        sampleRate: targetRate,
         maxLatencySamples: maxLatencySamples
       });
     } else if (this._buffer) {
-      this._feedFallback(resampledFloat32);
+      this._feedFallback(resampledFloat32, targetRate);
     }
   }
 
-  /** Returns current RMS audio level (0–1) */
   getLevel() {
     return this._level;
   }
 
-  /** Set volume (0–1) */
   setVolume(value) {
     this._volume = Math.max(0, Math.min(1, value));
     if (this._gainNode && this._ctx) {
@@ -172,7 +177,7 @@ class AudioPlayer {
   /*  Internals                                                         */
   /* ------------------------------------------------------------------ */
 
-  /** Linear resampling helper */
+  /** Smooth boundary-aware linear resampler */
   _resample(samples, sourceRate, targetRate) {
     if (!samples || sourceRate === targetRate) return samples;
     const ratio = targetRate / sourceRate;
@@ -182,9 +187,13 @@ class AudioPlayer {
       const originPos = i / ratio;
       const index = Math.floor(originPos);
       const fraction = originPos - index;
-      const nextIndex = Math.min(index + 1, samples.length - 1);
-      result[i] = samples[index] * (1 - fraction) + samples[nextIndex] * fraction;
+
+      const s0 = (index === 0) ? this._lastResampleSample : samples[index - 1];
+      const s1 = samples[index];
+
+      result[i] = s0 + fraction * (s1 - s0);
     }
+    this._lastResampleSample = samples[samples.length - 1];
     return result;
   }
 
@@ -200,7 +209,6 @@ class AudioPlayer {
       const pairCount = Math.floor(bytes.byteLength / 2);
       if (pairCount === 0) return null;
 
-      // Explicit byteOffset and length to prevent iOS Safari memory alignment RangeError
       const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, pairCount);
       const float32 = new Float32Array(int16.length);
       for (let i = 0; i < int16.length; i++) {
@@ -213,8 +221,10 @@ class AudioPlayer {
     }
   }
 
-  /** ScriptProcessor fallback feed */
-  _feedFallback(float32) {
+  /** ScriptProcessor fallback feed with pre-buffering */
+  _feedFallback(float32, targetRate) {
+    const minPrebuffer = Math.ceil(targetRate * 0.15); // 150ms
+
     if (this._bufferedSamples + float32.length > this._bufferSize) {
       const overflow = (this._bufferedSamples + float32.length) - this._maxLatencySamples;
       if (overflow > 0) {
@@ -228,6 +238,10 @@ class AudioPlayer {
       this._writePos = (this._writePos + 1) % this._bufferSize;
     }
     this._bufferedSamples += float32.length;
+
+    if (this._isFallbackBuffering && this._bufferedSamples >= minPrebuffer) {
+      this._isFallbackBuffering = false;
+    }
   }
 
   /** ScriptProcessor fallback callback */
@@ -235,6 +249,17 @@ class AudioPlayer {
     const output = event.outputBuffer.getChannelData(0);
     const len = output.length;
     let sumSq = 0;
+
+    const minPrebuffer = Math.ceil((this._ctx?.sampleRate || 24000) * 0.15);
+
+    if (this._isFallbackBuffering) {
+      if (this._bufferedSamples >= minPrebuffer) {
+        this._isFallbackBuffering = false;
+      } else {
+        output.fill(0);
+        return;
+      }
+    }
 
     for (let i = 0; i < len; i++) {
       if (this._bufferedSamples > 0) {
@@ -245,6 +270,7 @@ class AudioPlayer {
         this._bufferedSamples--;
       } else {
         output[i] = 0;
+        this._isFallbackBuffering = true;
       }
     }
 

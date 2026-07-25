@@ -273,51 +273,6 @@ body {
   padding: 0 2px;
 }
 
-/* Calibration section */
-.calibration-section {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.btn-calibrate {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.btn-calibrate:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: var(--accent);
-}
-
-.btn-calibrate:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.noise-gate-badge {
-  font-size: 11px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.04);
-  padding: 6px 12px;
-  border-radius: 20px;
-  border: 1px solid var(--border-color);
-  white-space: nowrap;
-}
-
 /* ===== Language Grid ===== */
 .language-grid {
   display: grid;
