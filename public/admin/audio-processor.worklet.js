@@ -26,6 +26,17 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
 
     // Level meter timer counter
     this._levelCounter = 0;
+
+    // Noise gate threshold (RMS)
+    this._noiseThreshold = 0;
+    this._gateEnabled = false;
+
+    this.port.onmessage = (event) => {
+      if (event.data && event.data.type === 'set_noise_gate') {
+        this._noiseThreshold = event.data.threshold || 0;
+        this._gateEnabled = !!event.data.enabled;
+      }
+    };
   }
 
   process(inputs) {
@@ -73,12 +84,20 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
     // 3. Emit 1600-sample PCM Int16 chunks
     while (this._bufferedCount >= this._samplesPerChunk) {
       const pcm = new Int16Array(this._samplesPerChunk);
+      let chunkSumSq = 0;
+
       for (let i = 0; i < this._samplesPerChunk; i++) {
         const s = Math.max(-1, Math.min(1, this._ringBuffer[this._readPos]));
+        chunkSumSq += s * s;
         pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         this._readPos = (this._readPos + 1) % this._ringBufferSize;
       }
       this._bufferedCount -= this._samplesPerChunk;
+
+      const chunkRms = Math.sqrt(chunkSumSq / this._samplesPerChunk);
+      if (this._gateEnabled && this._noiseThreshold > 0 && chunkRms < this._noiseThreshold) {
+        pcm.fill(0);
+      }
 
       this.port.postMessage(
         { type: 'audio', buffer: pcm.buffer },

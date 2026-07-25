@@ -41,6 +41,9 @@
     deviceNameLabel: document.getElementById('deviceNameLabel'),
     vuMeterFill: document.getElementById('vuMeterFill'),
     vuLevelDb: document.getElementById('vuLevelDb'),
+    btnCalibrate: document.getElementById('btnCalibrate'),
+    btnCalibrateText: document.getElementById('btnCalibrateText'),
+    noiseGateBadge: document.getElementById('noiseGateBadge'),
     languageGrid: document.getElementById('languageGrid'),
     btnToggle: document.getElementById('btnToggle'),
     statSessions: document.getElementById('statSessions'),
@@ -328,6 +331,14 @@
 
       state.workletNode = new AudioWorkletNode(state.audioContext, 'audio-capture-processor');
 
+      if (state.noiseFloorThreshold && state.noiseFloorThreshold > 0) {
+        state.workletNode.port.postMessage({
+          type: 'set_noise_gate',
+          threshold: state.noiseFloorThreshold,
+          enabled: true
+        });
+      }
+
       state.workletNode.port.onmessage = (event) => {
         const msg = event.data;
 
@@ -368,6 +379,62 @@
       state.mediaStream = null;
     }
     state.vuLevel = 0;
+  }
+
+  // ====================================================
+  // NOISE FLOOR CALIBRATION
+  // ====================================================
+  function calibrateNoiseFloor() {
+    if (!state.mediaStream) {
+      showToast('Veuillez d\'abord autoriser l\'accès au microphone.', 'warning');
+      return;
+    }
+
+    const btn = dom.btnCalibrate;
+    const btnText = dom.btnCalibrateText;
+    if (!btn) return;
+
+    btn.disabled = true;
+    showToast('Calibration en cours... Gardez le silence dans la salle (3s)', 'info');
+
+    const samples = [];
+    const startTime = Date.now();
+    const duration = 3000;
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, Math.ceil((duration - elapsed) / 1000));
+      if (btnText) btnText.textContent = `Mesure du bruit... ${remaining}s`;
+      samples.push(state.vuLevel);
+
+      if (elapsed >= duration) {
+        clearInterval(interval);
+
+        const avgRms = samples.reduce((a, b) => a + b, 0) / (samples.length || 1);
+        const noiseDb = Math.round(20 * Math.log10(Math.max(avgRms, 0.0001)));
+
+        // Threshold set slightly above ambient noise RMS (1.6x)
+        const threshold = Math.min(avgRms * 1.6, 0.05);
+        state.noiseFloorThreshold = threshold;
+
+        if (state.workletNode) {
+          state.workletNode.port.postMessage({
+            type: 'set_noise_gate',
+            threshold: threshold,
+            enabled: true
+          });
+        }
+
+        btn.disabled = false;
+        if (btnText) btnText.textContent = 'Calibrer le Bruit Ambiant';
+        if (dom.noiseGateBadge) {
+          dom.noiseGateBadge.textContent = `Porte du bruit : ${noiseDb} dB (Actif)`;
+          dom.noiseGateBadge.style.color = 'var(--success)';
+        }
+
+        showToast(`✅ Bruit ambiant calibré (${noiseDb} dB). Les bruits de fond seront filtrés.`, 'success');
+      }
+    }, 100);
   }
 
   // ====================================================
@@ -534,6 +601,12 @@
       updateDeviceLabel();
       startAudioCapture();
     });
+
+    if (dom.btnCalibrate) {
+      dom.btnCalibrate.addEventListener('click', () => {
+        calibrateNoiseFloor();
+      });
+    }
 
     dom.btnToggle.addEventListener('click', () => {
       toggleStreaming();
