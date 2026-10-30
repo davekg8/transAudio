@@ -5,18 +5,22 @@ const assert = require('node:assert');
 const EventEmitter = require('events');
 
 /* Fake `ws` module so the real connect/reconnect code runs without network.
-   Each new socket follows the next scripted behaviour: 'fail' errors out,
-   'ok' opens and acknowledges setup. */
+   Each new socket follows the next scripted behaviour:
+   'ok' accepts setup, 'fail' errors before opening,
+   'reject-extras' refuses a setup that asks for session resumption,
+   'reject-handle' refuses a setup that carries a resume handle. */
 const script = [];
 const sockets = [];
 class FakeWebSocket extends EventEmitter {
   constructor() {
     super();
     this.readyState = 0;
+    this.sent = [];
+    this.closed = false;
+    this.behaviour = script.shift() || 'ok';
     sockets.push(this);
-    const behaviour = script.shift() || 'ok';
     setImmediate(() => {
-      if (behaviour === 'fail') {
+      if (this.behaviour === 'fail') {
         this.emit('error', new Error('ECONNREFUSED'));
         this.emit('close', 1006, '');
       } else {
@@ -26,11 +30,23 @@ class FakeWebSocket extends EventEmitter {
     });
   }
   send(data) {
-    if (JSON.parse(data).setup) {
-      setImmediate(() => this.emit('message', Buffer.from(JSON.stringify({ setupComplete: {} }))));
-    }
+    const msg = JSON.parse(data);
+    this.sent.push(msg);
+    if (!msg.setup) return;
+    const refuse =
+      (this.behaviour === 'reject-extras' && msg.setup.sessionResumption) ||
+      (this.behaviour === 'reject-handle' && msg.setup.sessionResumption?.handle);
+    this.reply(refuse ? { error: { message: 'Invalid setup' } } : { setupComplete: {} });
+  }
+  reply(obj) {
+    setImmediate(() => this.emit('message', Buffer.from(JSON.stringify(obj))));
+  }
+  audioSent() {
+    return this.sent.filter((m) => m.realtimeInput).map((m) => m.realtimeInput.mediaChunks[0].data);
   }
   close() {
+    if (this.closed) return;
+    this.closed = true;
     this.readyState = 3;
     setImmediate(() => this.emit('close', 1000, ''));
   }
@@ -100,4 +116,98 @@ test('restarting sessions does not duplicate translated audio', async () => {
   manager.emit('audio:en', 'chunk');
   assert.strictEqual(received, 1);
   await manager.stopSession();
+});
+
+const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
+const last = () => sockets[sockets.length - 1];
+
+test('asks for session resumption and reuses the latest handle on reconnect', async () => {
+  const t = new GeminiTranslator({ apiKey: 'k', targetLanguage: 'en', reconnectBaseDelay: 1, sessionResumption: true });
+  await t.connect();
+  const first = last();
+  assert.deepStrictEqual(first.sent[0].setup.sessionResumption, {});
+  assert.ok(first.sent[0].setup.contextWindowCompression);
+
+  first.reply({ sessionResumptionUpdate: { newHandle: 'h1', resumable: true } });
+  first.reply({ sessionResumptionUpdate: { newHandle: 'h2', resumable: true } });
+  await tick();
+
+  const back = waitFor(t, 'connected');
+  first.emit('close', 1011, 'gone');
+  await back;
+  assert.deepStrictEqual(last().sent[0].setup.sessionResumption, { handle: 'h2' });
+  t.disconnect();
+});
+
+test('goAway: switches to a new connection without dropping audio', async () => {
+  const t = new GeminiTranslator({ apiKey: 'k', targetLanguage: 'en', sessionResumption: true, drainMs: 20 });
+  const translated = [];
+  t.onAudio((c) => translated.push(c));
+  let disconnected = 0;
+  t.on('disconnected', () => disconnected++);
+  await t.connect();
+  const old = last();
+  old.reply({ sessionResumptionUpdate: { newHandle: 'h1' } });
+  await tick();
+
+  // Delivered synchronously so the replacement is still opening when audio arrives.
+  old.emit('message', Buffer.from(JSON.stringify({ goAway: { timeLeft: '5s' } })));
+  t.sendAudio('during-handover'); // new connection not ready yet: goes to the old one
+  await tick();
+
+  const fresh = last();
+  assert.notStrictEqual(fresh, old);
+  assert.deepStrictEqual(fresh.sent[0].setup.sessionResumption, { handle: 'h1' });
+  t.sendAudio('after-handover');
+  assert.deepStrictEqual(old.audioSent(), ['during-handover']);
+  assert.deepStrictEqual(fresh.audioSent(), ['after-handover']);
+
+  // The old connection still delivers its last translated words…
+  old.reply({ serverContent: { modelTurn: { parts: [{ inlineData: { data: 'tail' } }] } } });
+  await tick();
+  assert.deepStrictEqual(translated, ['tail']);
+
+  // …then is closed, without the translator ever reporting a disconnect.
+  await tick(40);
+  assert.strictEqual(old.closed, true);
+  assert.strictEqual(t.status, 'connected');
+  assert.strictEqual(disconnected, 0);
+  t.disconnect();
+});
+
+test('falls back to a plain session when the model refuses resumption options', async () => {
+  script.push('reject-extras', 'reject-extras');
+  const t = new GeminiTranslator({ apiKey: 'k', targetLanguage: 'en', sessionResumption: true });
+  await t.connect();
+  assert.strictEqual(t.status, 'connected');
+  assert.strictEqual(last().sent[0].setup.sessionResumption, undefined);
+  t.disconnect();
+});
+
+test('starts a fresh session when the resume handle is refused', async () => {
+  const t = new GeminiTranslator({ apiKey: 'k', targetLanguage: 'en', reconnectBaseDelay: 1, sessionResumption: true });
+  await t.connect();
+  last().reply({ sessionResumptionUpdate: { newHandle: 'stale' } });
+  await tick();
+
+  script.push('reject-handle', 'ok');
+  const back = waitFor(t, 'connected');
+  last().emit('close', 1011, '');
+  await back;
+  assert.deepStrictEqual(last().sent[0].setup.sessionResumption, {});
+  t.disconnect();
+});
+
+test('keeps input audio while reconnecting and sends it once back', async () => {
+  const t = new GeminiTranslator({ apiKey: 'k', targetLanguage: 'en', reconnectBaseDelay: 20, maxBufferedChunks: 2 });
+  await t.connect();
+  const back = waitFor(t, 'connected');
+  last().emit('close', 1011, '');
+
+  t.sendAudio('a');
+  t.sendAudio('b');
+  t.sendAudio('c'); // buffer holds 2 chunks: 'a' is dropped
+  await back;
+  assert.deepStrictEqual(last().audioSent(), ['b', 'c']);
+  t.disconnect();
 });
