@@ -31,7 +31,7 @@ class GeminiTranslator extends EventEmitter {
    * @param {string} [opts.voiceName]    TTS voice name (default "Kore")
    * @param {string} [opts.model]        Gemini model name
    */
-  constructor({ apiKey, targetLanguage, voiceName = 'Kore', model }) {
+  constructor({ apiKey, targetLanguage, voiceName = 'Kore', model, reconnectBaseDelay = 1000, setupTimeout = 15000 }) {
     super();
     this._apiKey = apiKey;
     this._targetLanguage = targetLanguage;
@@ -50,8 +50,8 @@ class GeminiTranslator extends EventEmitter {
     this._reconnectAttempts = 0;
     this._maxReconnectAttempts = 8;
     this._reconnectTimer = null;
-
-
+    this._reconnectBaseDelay = reconnectBaseDelay;
+    this._setupTimeout = setupTimeout;
   }
 
   get isConnected() {
@@ -77,44 +77,74 @@ class GeminiTranslator extends EventEmitter {
 
     this._intentionalClose = false;
 
+    // Drop any half-open socket left by a failed attempt.
+    this._closeSocket();
+
     return new Promise((resolve, reject) => {
       // Build connection URL, but NEVER log the API key
       const url = `${GEMINI_WS_URL}?key=${this._apiKey}`;
 
       this._logger.info(`Connecting to Gemini Live API using model: ${this._modelName}`);
-      this._ws = new WebSocket(url);
+      const ws = new WebSocket(url);
+      this._ws = ws;
 
-      this._ws.on('open', () => {
+      let settled = false;
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(setupTimer);
+        // Close this socket so its 'close' event cannot trigger a second reconnect.
+        if (this._ws === ws) this._closeSocket();
+        reject(err);
+      };
+      const succeed = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(setupTimer);
+        resolve();
+      };
+
+      const setupTimer = setTimeout(() => {
+        fail(new Error(`Setup not acknowledged within ${this._setupTimeout}ms`));
+      }, this._setupTimeout);
+
+      ws.on('open', () => {
+        if (this._ws !== ws) return;
         this._connected = true;
-        this._reconnectAttempts = 0;
         this._logger.info('WebSocket connected. Sending setup payload…');
         this._sendSetup();
       });
 
-      this._ws.on('message', (raw) => {
+      ws.on('message', (raw) => {
+        if (this._ws !== ws) return;
         try {
           const msg = JSON.parse(raw.toString());
-          this._handleMessage(msg, resolve, reject);
+          this._handleMessage(msg, succeed, fail);
         } catch (err) {
           this._logger.error('Failed to parse incoming message', err);
         }
       });
 
-      this._ws.on('error', (err) => {
+      ws.on('error', (err) => {
+        if (this._ws !== ws) return;
         this._logger.error('WebSocket connection error', err);
         this.emit('error', err);
-        if (!this._setupComplete) reject(err);
+        fail(err);
       });
 
-      this._ws.on('close', (code, reason) => {
-        const wasConnected = this._connected;
+      ws.on('close', (code, reason) => {
+        // Ignore sockets we already replaced or closed on purpose.
+        if (this._ws !== ws) return;
+        this._ws = null;
         this._connected = false;
         this._setupComplete = false;
         this._logger.warn(`WebSocket connection closed (code=${code}, reason=${reason || 'none'})`);
         this.emit('disconnected');
 
-        if (!this._intentionalClose && wasConnected) {
-          this._scheduleReconnect();
+        if (!settled) {
+          fail(new Error(`WebSocket closed before setup (code=${code})`));
+        } else if (!this._intentionalClose) {
+          this.scheduleReconnect();
         }
       });
     });
@@ -160,15 +190,41 @@ class GeminiTranslator extends EventEmitter {
   disconnect() {
     this._intentionalClose = true;
     clearTimeout(this._reconnectTimer);
+    this._reconnectTimer = null;
 
     if (this._ws) {
       this._logger.info('Gracefully disconnecting session…');
-      this._ws.close(1000, 'Client disconnect');
-      this._ws = null;
+    }
+    this._closeSocket();
+  }
+
+  /**
+   * Retry the connection with exponential backoff. Keeps retrying after
+   * failed attempts until it succeeds or the attempt limit is reached.
+   */
+  scheduleReconnect() {
+    if (this._intentionalClose || this._reconnectTimer) return;
+
+    if (this._reconnectAttempts >= this._maxReconnectAttempts) {
+      this._logger.error('Max reconnect attempts reached. Giving up.');
+      this.emit('error', new Error('Max reconnect attempts reached'));
+      return;
     }
 
-    this._connected = false;
-    this._setupComplete = false;
+    const delay = Math.min(this._reconnectBaseDelay * Math.pow(2, this._reconnectAttempts), 30000);
+    this._reconnectAttempts++;
+    this._logger.warn(`Scheduling reconnection in ${delay}ms (attempt ${this._reconnectAttempts}/${this._maxReconnectAttempts})…`);
+    this.emit('reconnecting', this._reconnectAttempts);
+
+    this._reconnectTimer = setTimeout(async () => {
+      this._reconnectTimer = null;
+      try {
+        await this.connect();
+      } catch (err) {
+        this._logger.error('Reconnection attempt failed', err);
+        this.scheduleReconnect();
+      }
+    }, delay);
   }
 
   /* ------------------------------------------------------------------ */
@@ -208,6 +264,8 @@ class GeminiTranslator extends EventEmitter {
     // Setup acknowledgement
     if (msg.setupComplete) {
       this._setupComplete = true;
+      // Only a completed setup counts as a successful reconnect.
+      this._reconnectAttempts = 0;
       this._logger.info(`Setup complete — model=${this._modelName}, lang=${this._targetLanguage}`);
       this.emit('connected');
       if (typeof onSetupDone === 'function') onSetupDone();
@@ -230,25 +288,18 @@ class GeminiTranslator extends EventEmitter {
     }
   }
 
-  _scheduleReconnect() {
-    if (this._reconnectAttempts >= this._maxReconnectAttempts) {
-      this._logger.error('Max reconnect attempts reached. Giving up.');
-      this.emit('error', new Error('Max reconnect attempts reached'));
-      return;
-    }
-
-    const delay = Math.min(1000 * Math.pow(2, this._reconnectAttempts), 30000);
-    this._reconnectAttempts++;
-    this._logger.warn(`Scheduling reconnection in ${delay}ms (attempt ${this._reconnectAttempts}/${this._maxReconnectAttempts})…`);
-    this.emit('reconnecting', this._reconnectAttempts);
-
-    this._reconnectTimer = setTimeout(async () => {
+  _closeSocket() {
+    const ws = this._ws;
+    this._ws = null;
+    this._connected = false;
+    this._setupComplete = false;
+    if (ws) {
       try {
-        await this.connect();
+        ws.close(1000, 'Client disconnect');
       } catch (err) {
-        this._logger.error('Reconnection attempt failed', err);
+        ws.terminate?.();
       }
-    }, delay);
+    }
   }
 }
 
