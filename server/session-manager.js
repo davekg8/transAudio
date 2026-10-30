@@ -86,7 +86,8 @@ class SessionManager extends EventEmitter {
       try {
         await translator.connect();
       } catch (err) {
-        this._logger.error(`Failed to connect session [${lang}]`, err);
+        this._logger.error(`Failed to connect session [${lang}], will retry`, err);
+        translator.scheduleReconnect();
       }
     });
 
@@ -103,6 +104,9 @@ class SessionManager extends EventEmitter {
     for (const [lang, translator] of this._translators) {
       translator.disconnect();
       translator.removeAllListeners();
+      // Drop audio subscribers too, otherwise each restart adds one more
+      // and listeners receive every chunk several times.
+      this.removeAllListeners(`audio:${lang}`);
       this._logger.info(`Session [${lang}] stopped`);
     }
     this._translators.clear();
