@@ -46,7 +46,8 @@ class AudioPlayer {
   async start() {
     if (this._playing) return;
 
-    // Try creating AudioContext at native 24kHz rate first for zero-overhead native playback
+    // Everything up to the first await runs inside the user's tap, which
+    // mobile browsers require to start audio.
     if (!this._ctx || this._ctx.state === 'closed') {
       const AC = window.AudioContext || window.webkitAudioContext;
       try {
@@ -54,7 +55,24 @@ class AudioPlayer {
       } catch (e) {
         this._ctx = new AC();
       }
+      this._ctx.addEventListener?.('statechange', () => {
+        // iOS "interrupts" audio for calls or Siri; resume once allowed.
+        if (this._playing && this._ctx.state !== 'running' && this._ctx.state !== 'closed') {
+          this._ctx.resume().catch(() => {});
+        }
+      });
     }
+
+    // iOS 17+: declare this as media playback so it keeps playing with the
+    // screen locked and ignores the silent switch.
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch (e) {}
+
+    // Play through a regular <audio> element: browsers keep media elements
+    // playing in the background and show lock-screen controls for them,
+    // which they do not do for bare Web Audio.
+    const playPromise = this._startOutputElement();
 
     if (this._ctx.state === 'suspended') {
       await this._ctx.resume();
@@ -62,7 +80,18 @@ class AudioPlayer {
 
     this._gainNode = this._ctx.createGain();
     this._gainNode.gain.value = this._volume;
-    this._gainNode.connect(this._ctx.destination);
+
+    let routedToElement = false;
+    if (playPromise) {
+      try {
+        await playPromise;
+        routedToElement = true;
+      } catch (err) {
+        console.warn('[AudioPlayer] Background playback element refused, using direct output:', err);
+      }
+    }
+    this._gainNode.connect(routedToElement ? this._streamDest : this._ctx.destination);
+    this._backgroundCapable = routedToElement;
 
     const contextRate = this._ctx.sampleRate;
     const maxLatencySamples = Math.ceil(contextRate * 0.6);
@@ -104,9 +133,31 @@ class AudioPlayer {
     this._playing = true;
   }
 
+  /** True when audio goes through the media element (survives screen lock). */
+  get backgroundCapable() {
+    return !!this._backgroundCapable;
+  }
+
+  /**
+   * Bring audio back after the page returns to the foreground or after an
+   * interruption (call, other app). Safe to call at any time.
+   */
+  resume() {
+    if (!this._playing || !this._ctx) return;
+    if (this._ctx.state !== 'running' && this._ctx.state !== 'closed') {
+      this._ctx.resume().catch(() => {});
+    }
+    if (this._outputEl && this._backgroundCapable && this._outputEl.paused) {
+      this._outputEl.play().catch(() => {});
+    }
+  }
+
   /** Stop playback and release resources */
   stop() {
     this._playing = false;
+    if (this._outputEl) {
+      this._outputEl.pause();
+    }
     if (this._workletNode) {
       try {
         this._workletNode.port.postMessage({ type: 'clear' });
@@ -176,6 +227,29 @@ class AudioPlayer {
   /* ------------------------------------------------------------------ */
   /*  Internals                                                         */
   /* ------------------------------------------------------------------ */
+
+  /**
+   * Create (once) a hidden <audio> element fed by the AudioContext and start
+   * it. Returns the play() promise, or null when not supported.
+   */
+  _startOutputElement() {
+    if (typeof this._ctx.createMediaStreamDestination !== 'function') return null;
+    try {
+      if (!this._outputEl) {
+        this._streamDest = this._ctx.createMediaStreamDestination();
+        const el = document.createElement('audio');
+        el.setAttribute('playsinline', '');
+        el.style.display = 'none';
+        el.srcObject = this._streamDest.stream;
+        document.body.appendChild(el);
+        this._outputEl = el;
+      }
+      return this._outputEl.play();
+    } catch (err) {
+      console.warn('[AudioPlayer] Background playback element unavailable:', err);
+      return null;
+    }
+  }
 
   /** Smooth boundary-aware linear resampler */
   _resample(samples, sourceRate, targetRate) {

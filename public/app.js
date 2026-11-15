@@ -56,6 +56,7 @@
   let animFrameId = null;
   let wasListening = false;          // were we in listening screen before disconnect?
   let selectedLangBeforeDisconnect = null;
+  let pausedLang = null;             // language paused from the lock screen
 
   /* ── Init ───────────────────────────────────────────── */
   connectWebSocket();
@@ -165,9 +166,61 @@
     audioPlayer.setVolume(volumeSlider.value / 100);
     audioPlayer.start();
 
+    updateMediaSession(langCode);
     showScreen('listening');
     startVisualization();
   }
+
+  /* ── Lock screen / background playback ──────────────── */
+
+  /** Show what is playing on the lock screen, with play/pause buttons. */
+  function updateMediaSession(langCode) {
+    if (!('mediaSession' in navigator)) return;
+    const meta = LANG_META[langCode] || { name: langCode };
+    const church = (churchNameEl && churchNameEl.textContent) || 'TransAudio';
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: `Traduction en direct — ${meta.name}`,
+        artist: church,
+        album: 'TransAudio',
+      });
+      navigator.mediaSession.playbackState = 'playing';
+    } catch (e) {}
+  }
+
+  if ('mediaSession' in navigator) {
+    const setHandler = (action, handler) => {
+      try { navigator.mediaSession.setActionHandler(action, handler); } catch (e) {}
+    };
+    setHandler('pause', () => {
+      if (!currentLang) return;
+      pausedLang = currentLang;
+      stopListening();
+      showScreen('welcome');
+      navigator.mediaSession.playbackState = 'paused';
+    });
+    setHandler('play', () => {
+      const lang = currentLang || pausedLang;
+      if (lang) joinLanguage(lang);
+    });
+    setHandler('stop', () => {
+      stopListening();
+      showScreen('welcome');
+      navigator.mediaSession.playbackState = 'none';
+    });
+  }
+
+  // Coming back to the page (unlock, app switch): make sure audio runs again
+  // and the connection is alive.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (audioPlayer && currentLang) audioPlayer.resume();
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      clearTimeout(reconnectTimer);
+      reconnectDelay = 1000;
+      connectWebSocket();
+    }
+  });
 
   function handleAudio(base64Data) {
     if (audioPlayer) {
