@@ -224,13 +224,12 @@ class GeminiTranslator extends EventEmitter {
     const handle = withExtras ? this._resumeHandle : null;
 
     return new Promise((resolve, reject) => {
-      // Build connection URL, but NEVER log the API key
-      const url = `${GEMINI_WS_URL}?key=${this._apiKey}`;
       this._logger.info(
         `Connecting to Gemini Live API using model: ${this._modelName}${handle ? ' (resuming session)' : ''}`
       );
 
-      const ws = new WebSocket(url);
+      // The key goes in a header, not the URL, so it never ends up in logs.
+      const ws = new WebSocket(GEMINI_WS_URL, { headers: { 'x-goog-api-key': this._apiKey } });
       this._sockets.add(ws);
 
       let opened = false;
