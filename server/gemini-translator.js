@@ -246,7 +246,9 @@ class GeminiTranslator extends EventEmitter {
         this._closeWs(ws);
 
         // Gemini answered but refused the setup: retry with fewer options.
-        if (opened && !this._intentionalClose) {
+        // Not for key/quota problems, which fewer options would not fix.
+        const accessProblem = /api key|permission|unauthori[sz]ed|forbidden|quota|billing/i.test(err.message);
+        if (opened && !this._intentionalClose && !accessProblem) {
           if (handle) {
             this._logger.warn('Resume handle refused — starting a fresh session');
             this._resumeHandle = null;

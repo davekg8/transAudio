@@ -33,6 +33,11 @@ class FakeWebSocket extends EventEmitter {
     const msg = JSON.parse(data);
     this.sent.push(msg);
     if (!msg.setup) return;
+    if (this.behaviour === 'bad-key') {
+      this.closed = true;
+      setImmediate(() => this.emit('close', 1007, 'API key not valid. Please pass a valid API key.'));
+      return;
+    }
     const refuse =
       (this.behaviour === 'reject-extras' && msg.setup.sessionResumption) ||
       (this.behaviour === 'reject-handle' && msg.setup.sessionResumption?.handle);
@@ -209,5 +214,13 @@ test('keeps input audio while reconnecting and sends it once back', async () => 
   t.sendAudio('c'); // buffer holds 2 chunks: 'a' is dropped
   await back;
   assert.deepStrictEqual(last().audioSent(), ['b', 'c']);
+  t.disconnect();
+});
+
+test('an invalid API key does not switch off session resumption', async () => {
+  script.push('bad-key');
+  const t = new GeminiTranslator({ apiKey: 'k', targetLanguage: 'en', sessionResumption: true });
+  await assert.rejects(t.connect(), /API key not valid/);
+  assert.strictEqual(t._useSessionExtras, true);
   t.disconnect();
 });
