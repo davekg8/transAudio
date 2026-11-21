@@ -3,225 +3,126 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TransAudio — Traduction en Direct pour l'Église</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/info/style.css">
+  <meta name="color-scheme" content="dark light">
+  <title>TransAudio — la traduction du culte en direct</title>
+  <meta name="description" content="TransAudio traduit le message en direct. Les fidèles l’écoutent dans leur langue sur leur téléphone, avec leurs écouteurs, sans rien installer.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/brand.css?v=4">
+  <link rel="stylesheet" href="/info/style.css?v=4">
 </head>
 <body>
-  <div class="background-glow">
-    <div class="orb orb-top-left"></div>
-    <div class="orb orb-bottom-right"></div>
-  </div>
 
-  <div class="layout-wrapper">
-    <!-- Header / Navigation -->
-    <header class="main-header">
-      <div class="nav-container">
-        <a href="/info" class="logo" aria-label="Accueil TransAudio">
-          <svg class="logo-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
-          <span class="logo-text">TransAudio</span>
-        </a>
-        <nav>
-          <ul class="nav-links">
-            <li><a href="/info" class="active">Présentation</a></li>
-            <li><a href="/info/tuto.html">Tutoriel Fidèles</a></li>
-            <li><a href="/" class="nav-btn">Ouvrir l'App</a></li>
-          </ul>
-        </nav>
+  <header class="nav">
+    <a href="/info" class="marque" aria-label="TransAudio, accueil">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><use href="#halo"/></svg>TransAudio
+    </a>
+    <nav aria-label="Navigation principale">
+      <a href="/info/tuto.html">Comment écouter</a>
+      <a href="/" class="nav-action">Écouter</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="ouverture" aria-labelledby="titre">
+      <div class="ouverture-texte">
+        <h1 id="titre">Chacun l’entend dans sa propre langue.</h1>
+        <p class="citation">D’après Actes 2.6</p>
+        <p class="ouverture-intro">TransAudio traduit le message pendant le culte. Les fidèles l’écoutent en direct sur leur téléphone, avec leurs écouteurs, sans rien installer.</p>
+        <div class="actions">
+          <a href="/" class="btn btn-plein">Écouter la traduction</a>
+          <a href="/info/tuto.html" class="btn btn-trait">Voir comment faire</a>
+        </div>
       </div>
-    </header>
 
-    <!-- Main Container -->
-    <main class="container">
-      
-      <!-- Hero Section -->
-      <section class="hero" aria-labelledby="hero-heading">
-        <span class="badge" role="status">
-          <span class="badge-pulse" aria-hidden="true"></span>
-          Gemini 3.5 Live Translate
-        </span>
-        <h1 id="hero-heading" class="hero-title">La prédication,<br>sans barrière linguistique.</h1>
-        <p class="hero-subtitle">Une solution de traduction audio en temps réel à ultra-faible latence pour votre église. Le pasteur prêche, le PC multimédia traduit, et les fidèles écoutent instantanément sur leur smartphone.</p>
-        <div class="cta-group">
-          <a href="/info/tuto.html" class="btn btn-gold">
-            <span>Guide d'Écoute Fidèles</span>
-            <svg class="btn-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"></path>
-            </svg>
-          </a>
-          <a href="/" class="btn btn-secondary">Accéder à la Console Admin</a>
+      <div class="cloche" aria-hidden="true">
+        <svg viewBox="0 0 400 400">
+          <circle class="cercle c1" cx="200" cy="200" r="60"/>
+          <circle class="cercle c2" cx="200" cy="200" r="110"/>
+          <circle class="cercle c3" cx="200" cy="200" r="160"/>
+          <circle class="cercle c4" cx="200" cy="200" r="198"/>
+          <circle class="coeur" cx="200" cy="200" r="22"/>
+        </svg>
+        <ul class="cloche-langues">
+          <li lang="en" style="--a: -52deg; --d: 170px">English</li>
+          <li lang="es" style="--a: 18deg; --d: 176px">Español</li>
+          <li lang="pt" style="--a: 112deg; --d: 158px">Português</li>
+          <li lang="ln" style="--a: 172deg; --d: 168px">Lingála</li>
+          <li lang="sw" style="--a: -122deg; --d: 140px">Kiswahili</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="t-chemin">
+      <h2 id="t-chemin" class="section-titre">Du micro aux écouteurs</h2>
+      <ol class="chemin">
+        <li>
+          <h3>La régie envoie le son</h3>
+          <p>La sortie de la table de mixage est branchée sur l’ordinateur de la régie. Depuis la console, on choisit les langues et on lance la traduction.</p>
+        </li>
+        <li>
+          <h3>Gemini traduit en direct</h3>
+          <p>Une voix traduit le message au fil de la prédication, avec quelques secondes de décalage. Les sous-titres suivent en même temps.</p>
+        </li>
+        <li>
+          <h3>Les fidèles écoutent</h3>
+          <p>Ils scannent le QR code, touchent leur langue et écoutent avec leurs écouteurs, même téléphone verrouillé.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="section" aria-labelledby="t-savoir">
+      <h2 id="t-savoir" class="section-titre">Bon à savoir</h2>
+      <dl class="faits">
+        <div>
+          <dt>Rien à installer</dt>
+          <dd>C’est une page web. Elle s’ouvre dans le navigateur de n’importe quel téléphone récent.</dd>
         </div>
-      </section>
-
-      <!-- Key Benefits / Features -->
-      <section class="features-section" aria-labelledby="features-heading">
-        <div class="section-title-wrapper">
-          <h2 id="features-heading" class="section-title">Pourquoi choisir TransAudio ?</h2>
-          <p class="section-subtitle">Conçu spécifiquement pour les églises locales, alliant simplicité technique et maîtrise budgétaire.</p>
+        <div>
+          <dt>Jusqu’à 6 langues</dt>
+          <dd>La régie coche les langues proposées. Le changement apparaît aussitôt sur les téléphones, même en plein culte.</dd>
         </div>
-
-        <div class="features-grid">
-          <!-- Feature 1 -->
-          <div class="feature-card">
-            <div class="feature-icon-wrapper" aria-hidden="true">
-              <svg class="feature-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-              </svg>
-            </div>
-            <h3 class="feature-title">Temps Réel Absolu</h3>
-            <p class="feature-desc">Grâce à l'API bidirectionnelle Gemini Live via WebSockets, la traduction se fait en continu avec une latence quasi nulle. Les fidèles entendent le prêche traduit en même temps que l'assemblée.</p>
-          </div>
-          
-          <!-- Feature 2 -->
-          <div class="feature-card">
-            <div class="feature-icon-wrapper gold" aria-hidden="true">
-              <svg class="feature-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-              </svg>
-            </div>
-            <h3 class="feature-title">Budget 100% Maîtrisé</h3>
-            <p class="feature-desc">Seul le serveur central de l'église appelle l'API Gemini. Les fidèles se connectent localement sur le serveur. Que vous ayez 5 ou 500 auditeurs, le coût reste fixe (environ $2.20/h par langue).</p>
-          </div>
-
-          <!-- Feature 3 -->
-          <div class="feature-card">
-            <div class="feature-icon-wrapper" aria-hidden="true">
-              <svg class="feature-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
-              </svg>
-            </div>
-            <h3 class="feature-title">Sans aucune Installation</h3>
-            <p class="feature-desc">Les fidèles n'ont pas besoin d'installer d'application depuis Google Play ou l'App Store. Il leur suffit de scanner un QR Code pour ouvrir la page web d'écoute sur leur navigateur habituel.</p>
-          </div>
+        <div>
+          <dt>4G ou Wi-Fi</dt>
+          <dd>Le service est en ligne&nbsp;: chacun écoute avec sa connexion habituelle.</dd>
         </div>
-      </section>
-
-      <!-- How it Works section -->
-      <section class="how-it-works-section" aria-labelledby="how-it-works-heading">
-        <div class="section-title-wrapper">
-          <h2 id="how-it-works-heading" class="section-title">Comment ça fonctionne ?</h2>
-          <p class="section-subtitle">Une intégration simple avec votre équipement de régie actuel.</p>
+        <div>
+          <dt>Un coût qui ne dépend pas de l’assemblée</dt>
+          <dd>On paie le temps de traduction, par langue. Que dix ou trente personnes écoutent, le coût est le même.</dd>
         </div>
-
-        <div class="tuto-box">
-          <div class="tuto-layout">
-            <div class="tuto-steps-list" role="tablist" aria-label="Étapes de fonctionnement">
-              <button class="tuto-step-item active" data-step="1" role="tab" aria-selected="true" aria-controls="panel-1" id="tab-1">
-                <span class="step-num">1</span>
-                <span class="step-text">
-                  <h3>Capture Audio</h3>
-                  <p>La sortie de votre table de mixage est branchée sur le PC de la régie multimédia.</p>
-                </span>
-              </button>
-              <button class="tuto-step-item" data-step="2" role="tab" aria-selected="false" aria-controls="panel-2" id="tab-2">
-                <span class="step-num">2</span>
-                <span class="step-text">
-                  <h3>Traduction par l'IA</h3>
-                  <p>Le dashboard d'administration envoie l'audio au serveur local, qui le traduit via Gemini.</p>
-                </span>
-              </button>
-              <button class="tuto-step-item" data-step="3" role="tab" aria-selected="false" aria-controls="panel-3" id="tab-3">
-                <span class="step-num">3</span>
-                <span class="step-text">
-                  <h3>Diffusion Locale</h3>
-                  <p>Le serveur local diffuse instantanément le flux audio traduit aux téléphones connectés au Wi-Fi.</p>
-                </span>
-              </button>
-            </div>
-
-            <div class="tuto-graphic-panel">
-              <!-- Slide 1 -->
-              <div class="graphic-slide active" data-slide="1" role="tabpanel" id="panel-1" aria-labelledby="tab-1">
-                <div class="graphic-icon-wrapper">
-                  <svg class="graphic-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
-                  </svg>
-                </div>
-                <h4 class="graphic-title">1. Entrée Régie Directe</h4>
-                <p class="graphic-details">Sélectionnez simplement votre micro ou la sortie générale de la table de mixage dans l'interface d'administration.</p>
-              </div>
-              <!-- Slide 2 -->
-              <div class="graphic-slide" data-slide="2" role="tabpanel" id="panel-2" aria-labelledby="tab-2">
-                <div class="graphic-icon-wrapper">
-                  <svg class="graphic-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-                  </svg>
-                </div>
-                <h4 class="graphic-title">2. Traduction Gemini Live</h4>
-                <p class="graphic-details">Le modèle officiel interprète la voix et synthétise une traduction audio fluide dans la langue cible.</p>
-              </div>
-              <!-- Slide 3 -->
-              <div class="graphic-slide" data-slide="3" role="tabpanel" id="panel-3" aria-labelledby="tab-3">
-                <div class="graphic-icon-wrapper">
-                  <svg class="graphic-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.3 12.7C7.18 13.56 8.25 14 9.5 14c1.16 0 2.16-.37 3-1.12l1.5-1.5c.85-.75 1.34-1.7 1.47-2.88H13.5m-1.5 5.5l1.5-1.5M19.6 21l-6.3-6.3M12 6.5C13.53 6.5 14.83 5.96 15.9 4.9m1.6 7.1c.33-.56.61-1.06.82-1.63M17.5 12c0-1.53-.53-2.83-1.6-3.9"></path>
-                  </svg>
-                </div>
-                <h4 class="graphic-title">3. Écoute Wi-Fi Locale</h4>
-                <p class="graphic-details">Les fidèles scannent le QR Code projeté, branchent leurs écouteurs et écoutent le prêche en direct dans leur langue.</p>
-              </div>
-            </div>
-          </div>
+        <div>
+          <dt>Environ 30 auditeurs à la fois</dt>
+          <dd>C’est la limite de l’hébergement gratuit actuel. Un hébergement payant permet d’aller au-delà.</dd>
         </div>
-      </section>
-
-      <!-- Technical specifications -->
-      <section class="tech-spec-section" aria-labelledby="tech-heading">
-        <div class="section-title-wrapper">
-          <h2 id="tech-heading" class="section-title">Fiche Technique</h2>
-          <p class="section-subtitle">Détails de l'infrastructure et de l'encodage audio.</p>
+        <div>
+          <dt>Une régie protégée</dt>
+          <dd>La console de traduction demande un mot de passe. Les fidèles, eux, n’ont aucun compte à créer.</dd>
         </div>
+      </dl>
+    </section>
 
-        <div class="tech-box">
-          <div class="tech-grid">
-            <div class="tech-card">
-              <h3>Audio Entrée (Régie)</h3>
-              <ul>
-                <li><span>Format</span> <span>PCM Brut (16-bit)</span></li>
-                <li><span>Fréquence</span> <span>16 000 Hz (mono)</span></li>
-                <li><span>Taille de bloc</span> <span>100 ms</span></li>
-                <li><span>Connexion</span> <span>WebSocket local</span></li>
-              </ul>
-            </div>
-            <div class="tech-card">
-              <h3>Traduction (Gemini)</h3>
-              <ul>
-                <li><span>Modèle</span> <span>gemini-3.5-live-translate</span></li>
-                <li><span>Langues</span> <span>Multilingue (EN, ES, PT, FR...)</span></li>
-                <li><span>Voix</span> <span>Kore, Puck, Aoede...</span></li>
-                <li><span>Protocole</span> <span>WebSocket v1beta</span></li>
-              </ul>
-            </div>
-            <div class="tech-card">
-              <h3>Audio Sortie (Fidèles)</h3>
-              <ul>
-                <li><span>Format</span> <span>PCM Brut (16-bit)</span></li>
-                <li><span>Fréquence</span> <span>24 000 Hz (mono)</span></li>
-                <li><span>Décodage</span> <span>Web Audio API (Buffer)</span></li>
-                <li><span>Latence globale</span> <span>&lt; 500 ms</span></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
+    <section class="appel" aria-labelledby="t-appel">
+      <h2 id="t-appel">Le culte a commencé&nbsp;?</h2>
+      <p>Ouvrez la page d’écoute et choisissez votre langue.</p>
+      <a href="/" class="btn btn-plein">Écouter la traduction</a>
+    </section>
+  </main>
 
-    </main>
+  <footer class="pied">
+    <span class="marque marque-petite"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#halo"/></svg>TransAudio</span>
+    <nav aria-label="Liens du pied de page">
+      <a href="/info/tuto.html">Comment écouter</a>
+      <a href="/admin/">Régie</a>
+    </nav>
+  </footer>
 
-    <!-- Footer -->
-    <footer class="main-footer">
-      <ul class="footer-links">
-        <li><a href="/info">Présentation</a></li>
-        <li><a href="/info/tuto.html">Tutoriel Fidèles</a></li>
-        <li><a href="/">Console Régie</a></li>
-      </ul>
-      <p>&copy; 2026 TransAudio — ICC Cergy. Tous droits réservés.</p>
-    </footer>
-  </div>
-
-  <script src="/info/app.js"></script>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="halo" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="3.2" fill="currentColor"/>
+      <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <path d="M11.2 11.2a6.8 6.8 0 0 0 0 9.6M20.8 11.2a6.8 6.8 0 0 1 0 9.6"/>
+        <path d="M7.3 7.3a12.3 12.3 0 0 0 0 17.4M24.7 7.3a12.3 12.3 0 0 1 0 17.4" opacity=".55"/>
+      </g>
+    </symbol>
+  </svg>
 </body>
 </html>

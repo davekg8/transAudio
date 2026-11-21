@@ -1,0 +1,10 @@
+# TransAudio on Netlify Server (Early Access).
+# Everything (pages, live audio streams, WebSockets) is served by the Node
+# server in netlify/server/index.mjs. The published folder is deliberately
+# almost empty so that no project file (e.g. .env) is ever exposed.
+[build]
+  publish = "netlify/static"
+  command = "npm ci"
+
+[build.environment]
+  NODE_VERSION = "24"

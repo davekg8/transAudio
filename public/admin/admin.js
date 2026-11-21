@@ -50,9 +50,26 @@
     uptimeValue: document.getElementById('uptimeValue'),
     clientUrl: document.getElementById('clientUrl'),
     btnCopyUrl: document.getElementById('btnCopyUrl'),
-    qrCode: document.getElementById('qrCode'),
+    qrImage: document.getElementById('qrImage'),
+    statVisitors: document.getElementById('statVisitors'),
+    transcriptInput: document.getElementById('transcriptInput'),
+    transcriptOutput: document.getElementById('transcriptOutput'),
+    transcriptLang: document.getElementById('transcriptLang'),
     toastContainer: document.getElementById('toastContainer'),
   };
+
+  // Languages offered in the console (the .env TARGET_LANGUAGES are pre-checked).
+  const LANGUAGES = {
+    en: ['🇬🇧', 'Anglais'], es: ['🇪🇸', 'Espagnol'], pt: ['🇵🇹', 'Portugais'],
+    de: ['🇩🇪', 'Allemand'], it: ['🇮🇹', 'Italien'], nl: ['🇳🇱', 'Néerlandais'],
+    zh: ['🇨🇳', 'Chinois'], ar: ['🇸🇦', 'Arabe'], sw: ['🇰🇪', 'Swahili'],
+    ln: ['🇨🇩', 'Lingala'], ru: ['🇷🇺', 'Russe'], uk: ['🇺🇦', 'Ukrainien'],
+    ro: ['🇷🇴', 'Roumain'], pl: ['🇵🇱', 'Polonais'], tr: ['🇹🇷', 'Turc'],
+    fa: ['🇮🇷', 'Persan'], hi: ['🇮🇳', 'Hindi'], ko: ['🇰🇷', 'Coréen'],
+    ja: ['🇯🇵', 'Japonais'], vi: ['🇻🇳', 'Vietnamien'], fr: ['🇫🇷', 'Français'],
+  };
+  const MAX_TRANSCRIPT_CHARS = 1500;
+  let languageGridReady = false;
 
   // ====================================================
   // INIT
@@ -70,10 +87,110 @@
   // ====================================================
   function setClientUrl(customUrl) {
     const url = customUrl || `${location.protocol}//${location.host}`;
+    if (dom.clientUrl.textContent === url) return;
     dom.clientUrl.textContent = url;
-    if (window.QRCodeGenerator && dom.qrCode) {
-      window.QRCodeGenerator.render(dom.qrCode, url);
+    // The QR code is generated locally by the server (no external service).
+    if (dom.qrImage) dom.qrImage.src = `/qr.svg?u=${encodeURIComponent(url)}`;
+  }
+
+  // ====================================================
+  // LANGUAGE GRID
+  // ====================================================
+  const LANG_STORAGE_KEY = 'transaudio.languages';
+  let lastLanguageEdit = 0;
+  let languageSendTimer = null;
+  let maxLanguages = 6;
+
+  function renderLanguageGrid(offered) {
+    if (languageGridReady || !dom.languageGrid) return;
+    languageGridReady = true;
+    const targets = offered && offered.length ? offered : ['en'];
+    const others = Object.keys(LANGUAGES).filter((c) => !targets.includes(c));
+    dom.languageGrid.innerHTML = '';
+
+    // Extra languages are folded away to keep the console short.
+    const details = document.createElement('details');
+    details.className = 'more-languages';
+    details.innerHTML = '<summary>Autres langues</summary><div class="language-grid"></div>';
+    const moreGrid = details.querySelector('.language-grid');
+
+    [...targets, ...others].forEach((code) => {
+      const [flag, name] = LANGUAGES[code] || ['🌐', code.toUpperCase()];
+      const label = document.createElement('label');
+      label.className = 'language-checkbox';
+      label.innerHTML = '<input type="checkbox" name="lang"><span class="checkmark"></span><span class="lang-flag"></span><span class="lang-label"></span>';
+      const input = label.querySelector('input');
+      input.value = code;
+      input.checked = targets.includes(code);
+      input.addEventListener('change', onLanguageToggle);
+      label.querySelector('.lang-flag').textContent = flag;
+      label.querySelector('.lang-label').textContent = name;
+      (targets.includes(code) ? dom.languageGrid : moreGrid).appendChild(label);
+    });
+    dom.languageGrid.appendChild(details);
+  }
+
+  // A checkbox was changed: publish the new list to the phones right away
+  // (and to the live translation if it is running).
+  function onLanguageToggle(e) {
+    const selected = getSelectedLanguages();
+    if (selected.length === 0) {
+      e.target.checked = true;
+      showToast('Gardez au moins une langue.', 'warning');
+      return;
     }
+    if (selected.length > maxLanguages) {
+      e.target.checked = false;
+      showToast(`${maxLanguages} langues maximum en même temps.`, 'warning');
+      return;
+    }
+    lastLanguageEdit = Date.now();
+    try { localStorage.setItem(LANG_STORAGE_KEY, JSON.stringify(selected)); } catch (_) { /* private mode */ }
+    clearTimeout(languageSendTimer);
+    languageSendTimer = setTimeout(() => {
+      sendWsMessage({ type: 'set_languages', languages: getSelectedLanguages() });
+      showToast(state.isStreaming
+        ? 'Langues mises à jour en direct.'
+        : 'Langues proposées aux fidèles mises à jour.', 'success');
+    }, 500);
+  }
+
+  // Reflect the server's list (changed by another console, or after a restart).
+  function syncLanguageGrid(offered, configured) {
+    if (!dom.languageGrid || !Array.isArray(offered)) return;
+
+    // Server just restarted (e.g. new Netlify instance): restore this console's last choice.
+    if (!configured) {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(LANG_STORAGE_KEY) || 'null'); } catch (_) { saved = null; }
+      if (Array.isArray(saved) && saved.length && saved.join(',') !== offered.join(',')) {
+        sendWsMessage({ type: 'set_languages', languages: saved });
+        offered = saved;
+        lastLanguageEdit = Date.now();
+      }
+    }
+
+    if (Date.now() - lastLanguageEdit < 3000) return; // user is editing
+    dom.languageGrid.querySelectorAll('input[name="lang"]').forEach((cb) => {
+      cb.checked = offered.includes(cb.value);
+    });
+  }
+
+  // ====================================================
+  // LIVE TRANSCRIPT
+  // ====================================================
+  function appendTranscript(msg) {
+    const box = msg.kind === 'input' ? dom.transcriptInput : dom.transcriptOutput;
+    if (!box) return;
+    if (msg.kind === 'output' && dom.transcriptLang) {
+      const meta = LANGUAGES[msg.language];
+      dom.transcriptLang.textContent = meta ? `(${meta[1]})` : `(${msg.language})`;
+    }
+    const empty = box.querySelector('.transcript-empty');
+    if (empty) empty.remove();
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+    box.textContent = (box.textContent + msg.text).slice(-MAX_TRANSCRIPT_CHARS);
+    if (atBottom) box.scrollTop = box.scrollHeight;
   }
 
   // ====================================================
@@ -111,9 +228,9 @@
       updateWsStatus('disconnected');
       clearInterval(state.statusPollInterval);
 
-      if (!event.wasClean) {
-        scheduleReconnect();
-      }
+      // Always reconnect: hosts close long connections (e.g. every 30 min on
+      // Netlify) and restart instances. Audio capture keeps running meanwhile.
+      checkSessionThenReconnect();
     };
 
     state.ws.onerror = () => {};
@@ -121,6 +238,19 @@
     state.ws.onmessage = (event) => {
       handleWsMessage(event.data);
     };
+  }
+
+  // A restarted server forgets admin logins: send the user back to the login
+  // page instead of retrying forever.
+  async function checkSessionThenReconnect() {
+    try {
+      const res = await fetch('/admin/index.html', { redirect: 'manual', cache: 'no-store' });
+      if (res.type === 'opaqueredirect' || res.status === 302) {
+        location.href = '/admin/login.html';
+        return;
+      }
+    } catch (e) { /* server unreachable: just retry */ }
+    scheduleReconnect();
   }
 
   function scheduleReconnect() {
@@ -155,6 +285,9 @@
       case 'status':
         updateDashboardStatus(msg);
         break;
+      case 'transcript':
+        appendTranscript(msg);
+        break;
       case 'error':
         showToast(msg.message || 'Erreur inconnue', 'error');
         break;
@@ -180,17 +313,34 @@
     };
 
     if (dom.wsStatusText) dom.wsStatusText.textContent = labels[status] || status;
-    if (dom.wsStatusTextFooter) dom.wsStatusTextFooter.textContent = `WebSocket : ${labels[status] || status}`;
+    if (dom.wsStatusTextFooter) dom.wsStatusTextFooter.textContent = `Serveur : ${(labels[status] || status).toLowerCase()}`;
   }
 
   // ====================================================
   // DASHBOARD STATUS UPDATE
   // ====================================================
   function updateDashboardStatus(msg) {
-    const { streaming, sessions, clients, serverUrl } = msg;
+    const { streaming, sessions, clients, serverUrl, visitors, targetLanguages, offeredLanguages, languagesConfigured } = msg;
 
     if (serverUrl) {
       setClientUrl(serverUrl);
+    }
+    if (typeof msg.maxLanguages === 'number') maxLanguages = msg.maxLanguages;
+    const offered = offeredLanguages || targetLanguages;
+    if (!languageGridReady) {
+      renderLanguageGrid(offered);
+      syncLanguageGrid(offered, languagesConfigured);
+    } else {
+      syncLanguageGrid(offered, true);
+    }
+
+    // Keep the button in sync with the server (e.g. after reloading the page
+    // or when another console started/stopped the translation).
+    const recentlyToggled = Date.now() - (state.lastToggle || 0) < 8000;
+    if (typeof streaming === 'boolean' && streaming !== state.isStreaming && !recentlyToggled) {
+      state.isStreaming = streaming;
+      updateToggleButton();
+      if (streaming) startUptime(); else stopUptime();
     }
 
     // Sessions
@@ -202,26 +352,19 @@
     let totalListeners = 0;
     clientEntries.forEach(([, count]) => { totalListeners += count; });
     dom.statListeners.textContent = totalListeners;
+    if (dom.statVisitors) {
+      dom.statVisitors.textContent = typeof visitors === 'number' ? (visitors > 1 ? `${visitors} pages ouvertes` : `${visitors} page ouverte`) : '';
+    }
 
     // Status text
     dom.statStatus.textContent = streaming ? 'En direct' : 'Inactif';
-    dom.statStatus.style.color = streaming ? 'var(--green)' : 'var(--text-muted)';
+    dom.statStatus.classList.toggle('actif', !!streaming);
 
     // Session list
     if (sessionEntries.length === 0) {
-      dom.sessionList.innerHTML = '<div class="session-empty">Aucune session active</div>';
+      dom.sessionList.innerHTML = '<div class="session-empty">Aucune traduction en cours</div>';
     } else {
-      const langNames = {
-        en: '🇬🇧 Anglais',
-        es: '🇪🇸 Espagnol',
-        fr: '🇫🇷 Français',
-        pt: '🇵🇹 Portugais',
-        de: '🇩🇪 Allemand',
-        zh: '🇨🇳 Chinois',
-        ar: '🇸🇦 Arabe',
-        sw: '🇰🇪 Swahili',
-        ln: '🇨🇩 Lingala'
-      };
+      const langNames = Object.fromEntries(Object.entries(LANGUAGES).map(([c, v]) => [c, v[1]]));
 
       const statusLabels = {
         connected: 'Connecté',
@@ -244,10 +387,7 @@
                 <div class="session-status-text">${statusLabels[status] || status}</div>
               </div>
             </div>
-            <div class="session-listeners">
-              <span>👥</span>
-              <span>${listeners}</span>
-            </div>
+            <div class="session-listeners"><span class="chiffres">${listeners}</span> à l’écoute</div>
           </div>
         `;
       }).join('');
@@ -268,7 +408,7 @@
       dom.audioDeviceSelect.innerHTML = '';
 
       if (audioInputs.length === 0) {
-        dom.audioDeviceSelect.innerHTML = '<option value="">Aucun périphérique audio trouvé</option>';
+        dom.audioDeviceSelect.innerHTML = '<option value="">Aucune entrée audio trouvée</option>';
         return;
       }
 
@@ -284,8 +424,8 @@
       startAudioCapture();
     } catch (err) {
       console.error('Erreur énumération périphériques:', err);
-      dom.audioDeviceSelect.innerHTML = '<option value="">Erreur d\'accès aux périphériques</option>';
-      showToast('Impossible d\'accéder aux périphériques audio. Vérifiez les permissions.', 'error');
+      dom.audioDeviceSelect.innerHTML = '<option value="">Micro non autorisé</option>';
+      showToast('Le navigateur bloque le micro. Autorisez-le (icône à gauche de l’adresse), puis rechargez la page.', 'error');
     }
   }
 
@@ -293,10 +433,10 @@
     const select = dom.audioDeviceSelect;
     const selected = select.options[select.selectedIndex];
     if (selected && selected.value) {
-      dom.deviceNameLabel.textContent = `🎤 ${selected.textContent}`;
+      dom.deviceNameLabel.textContent = selected.textContent;
       state.selectedDeviceId = selected.value;
     } else {
-      dom.deviceNameLabel.textContent = 'Aucun périphérique sélectionné';
+      dom.deviceNameLabel.textContent = 'Aucune entrée sélectionnée';
     }
   }
 
@@ -405,6 +545,7 @@
     }
 
     sendWsMessage({ type: 'start', languages: languages });
+    state.lastToggle = Date.now();
 
     state.isStreaming = true;
     updateToggleButton();
@@ -416,6 +557,7 @@
 
   function stopStreaming() {
     sendWsMessage({ type: 'stop' });
+    state.lastToggle = Date.now();
 
     // Keep audio capture active for local VU preview, just mark streaming as inactive
     state.isStreaming = false;
@@ -433,11 +575,11 @@
   function updateToggleButton() {
     if (state.isStreaming) {
       dom.btnToggle.className = 'btn-main-action stop';
-      dom.btnToggle.innerHTML = '<span class="btn-icon">⏹</span> Arrêter la Traduction';
+      dom.btnToggle.innerHTML = '<span class="btn-icon"></span> Arrêter la traduction';
       dom.streamingBadge.classList.add('active');
     } else {
       dom.btnToggle.className = 'btn-main-action start';
-      dom.btnToggle.innerHTML = '<span class="btn-icon">⚡</span> Démarrer la Traduction';
+      dom.btnToggle.innerHTML = '<span class="btn-icon"></span> Lancer la traduction';
       dom.streamingBadge.classList.remove('active');
     }
   }
@@ -507,16 +649,9 @@
   // TOAST NOTIFICATIONS
   // ====================================================
   function showToast(message, type = 'info') {
-    const icons = {
-      success: '✅',
-      error: '❌',
-      warning: '⚠️',
-      info: 'ℹ️',
-    };
-
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.innerHTML = `<span>${icons[type] || ''}</span><span>${escapeHtml(message)}</span>`;
+    toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
 
     if (dom.toastContainer) dom.toastContainer.appendChild(toast);
 

@@ -3,207 +3,98 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tutoriel d'Écoute Fidèles — TransAudio</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/info/style.css">
+  <meta name="color-scheme" content="dark light">
+  <title>Comment écouter — TransAudio</title>
+  <meta name="description" content="Écouter la traduction du culte sur votre téléphone, en quatre gestes.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/brand.css?v=4">
+  <link rel="stylesheet" href="/info/style.css?v=4">
 </head>
 <body>
-  <div class="background-glow">
-    <div class="orb orb-top-left"></div>
-    <div class="orb orb-bottom-right"></div>
-  </div>
 
-  <div class="layout-wrapper">
-    <!-- Header / Navigation -->
-    <header class="main-header">
-      <div class="nav-container">
-        <a href="/info" class="logo" aria-label="Accueil TransAudio">
-          <svg class="logo-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
-          <span class="logo-text">TransAudio</span>
-        </a>
-        <nav>
-          <ul class="nav-links">
-            <li><a href="/info">Présentation</a></li>
-            <li><a href="/info/tuto.html" class="active">Tutoriel Fidèles</a></li>
-            <li><a href="/" class="nav-btn">Ouvrir l'App</a></li>
-          </ul>
-        </nav>
-      </div>
-    </header>
+  <header class="nav">
+    <a href="/info" class="marque" aria-label="TransAudio, accueil">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><use href="#halo"/></svg>TransAudio
+    </a>
+    <nav aria-label="Navigation principale">
+      <a href="/info/tuto.html" aria-current="page">Comment écouter</a>
+      <a href="/" class="nav-action">Écouter</a>
+    </nav>
+  </header>
 
-    <!-- Main Container -->
-    <main class="container">
-      
-      <!-- Hero Section -->
-      <section class="hero" style="padding-bottom: 60px;" aria-labelledby="tuto-heading">
-        <span class="badge" style="color: #fbbf24; border-color: rgba(217, 119, 6, 0.15);">
-          <span class="badge-pulse" style="background-color: var(--gold); box-shadow: 0 0 8px var(--gold); animation: pulseGold 1.8s infinite;" aria-hidden="true"></span>
-          Guide Pratique
-        </span>
-        <h1 id="tuto-heading" class="hero-title" style="background: linear-gradient(135deg, #ffffff 0%, #fef3c7 50%, #f59e0b 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Comment écouter la traduction ?</h1>
-        <p class="hero-subtitle">Suivez ces étapes simples pour écouter le prêche traduit en direct directement sur votre téléphone portable pendant le culte.</p>
-      </section>
+  <main>
+    <section class="ouverture ouverture-simple" aria-labelledby="titre">
+      <h1 id="titre">Écouter la traduction en quatre gestes</h1>
+      <p class="ouverture-intro">Pas d’application, pas de compte. Il vous faut un téléphone, une connexion (4G ou Wi-Fi) et des écouteurs.</p>
+    </section>
 
-      <style>
-        @keyframes pulseGold {
-          0% { transform: scale(0.9); opacity: 0.6; }
-          50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px var(--gold); }
-          100% { transform: scale(0.9); opacity: 0.6; }
-        }
-      </style>
+    <section class="section" aria-labelledby="t-etapes">
+      <h2 id="t-etapes" class="visually-hidden">Les étapes</h2>
+      <ol class="chemin chemin-vertical">
+        <li>
+          <h3>Branchez vos écouteurs</h3>
+          <p>Filaires ou Bluetooth. L’écoute se fait uniquement aux écouteurs, pour ne pas gêner vos voisins.</p>
+        </li>
+        <li>
+          <h3>Scannez le QR code</h3>
+          <p>Il est projeté à l’écran ou affiché à l’accueil. Ouvrez l’appareil photo, visez le code, puis touchez le lien qui apparaît.</p>
+        </li>
+        <li>
+          <h3>Touchez votre langue</h3>
+          <p>La page affiche les langues traduites aujourd’hui. Si le message n’a pas encore commencé, choisissez quand même&nbsp;: le son arrivera tout seul.</p>
+        </li>
+        <li>
+          <h3>Écoutez, écran verrouillé si vous voulez</h3>
+          <p>Le son continue quand le téléphone est verrouillé. Les sous-titres s’affichent si vous gardez la page ouverte.</p>
+        </li>
+      </ol>
+    </section>
 
-      <!-- Step-by-Step Interactive Guide -->
-      <section class="how-it-works-section" aria-label="Étapes d'écoute pour les fidèles">
-        <div class="tuto-box">
-          <div class="tuto-layout">
-            <div class="tuto-steps-list" role="tablist" aria-label="Guide de connexion">
-              <!-- Step 1 -->
-              <button class="tuto-step-item active gold" data-step="1" role="tab" aria-selected="true" aria-controls="panel-tuto-1" id="tab-tuto-1">
-                <span class="step-num">1</span>
-                <span class="step-text">
-                  <h3>1. Connexion Wi-Fi</h3>
-                  <p>Connectez votre téléphone au réseau Wi-Fi de l'église.</p>
-                </span>
-              </button>
-              
-              <!-- Step 2 -->
-              <button class="tuto-step-item gold" data-step="2" role="tab" aria-selected="false" aria-controls="panel-tuto-2" id="tab-tuto-2">
-                <span class="step-num">2</span>
-                <span class="step-text">
-                  <h3>2. Scan du QR Code</h3>
-                  <p>Scannez le QR Code projeté sur les écrans ou disponible à l'accueil.</p>
-                </span>
-              </button>
-              
-              <!-- Step 3 -->
-              <button class="tuto-step-item gold" data-step="3" role="tab" aria-selected="false" aria-controls="panel-tuto-3" id="tab-tuto-3">
-                <span class="step-num">3</span>
-                <span class="step-text">
-                  <h3>3. Sélection de la Langue</h3>
-                  <p>Choisissez votre langue préférée dans l'interface d'écoute.</p>
-                </span>
-              </button>
-
-              <!-- Step 4 -->
-              <button class="tuto-step-item gold" data-step="4" role="tab" aria-selected="false" aria-controls="panel-tuto-4" id="tab-tuto-4">
-                <span class="step-num">4</span>
-                <span class="step-text">
-                  <h3>4. Brancher et Écouter</h3>
-                  <p>Branchez vos écouteurs et profitez du culte traduit en temps réel.</p>
-                </span>
-              </button>
-            </div>
-
-            <!-- Graphic Display Panel -->
-            <div class="tuto-graphic-panel">
-              <!-- Slide 1 -->
-              <div class="graphic-slide active active-gold" data-slide="1" role="tabpanel" id="panel-tuto-1" aria-labelledby="tab-tuto-1">
-                <div class="graphic-icon-wrapper">
-                  <svg class="graphic-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071a9 9 0 0114.14 0M1.34 7.5a13.9 13.9 0 0119.32 0"></path>
-                  </svg>
-                </div>
-                <h4 class="graphic-title">1. Rejoindre le Wi-Fi</h4>
-                <p class="graphic-details">Activez le Wi-Fi sur votre téléphone et connectez-vous au réseau local de l'église. La diffusion audio locale nécessite d'être connecté à ce réseau.</p>
-              </div>
-              
-              <!-- Slide 2 -->
-              <div class="graphic-slide" data-slide="2" role="tabpanel" id="panel-tuto-2" aria-labelledby="tab-tuto-2">
-                <div class="graphic-icon-wrapper">
-                  <svg class="graphic-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v1m6 2v1M6 6v1m12 7v1m-12 1v1m4 4h4m1.168-15.656a2.25 2.25 0 013.182 3.182M18 12a6 6 0 11-12 0 6 6 0 0112 0z"></path>
-                  </svg>
-                </div>
-                <h4 class="graphic-title">2. Flasher le Code</h4>
-                <p class="graphic-details">Ouvrez l'appareil photo de votre téléphone ou votre application de scan habituelle pour lire le QR Code. Cliquez sur le lien qui s'affiche pour ouvrir l'interface d'écoute.</p>
-              </div>
-              
-              <!-- Slide 3 -->
-              <div class="graphic-slide" data-slide="3" role="tabpanel" id="panel-tuto-3" aria-labelledby="tab-tuto-3">
-                <div class="graphic-icon-wrapper">
-                  <svg class="graphic-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path>
-                  </svg>
-                </div>
-                <h4 class="graphic-title">3. Choisir sa Langue</h4>
-                <p class="graphic-details">Sur la page web qui s'ouvre, vous verrez les langues actuellement traduites en direct par la régie (ex: "English"). Cliquez sur la langue de votre choix.</p>
-              </div>
-
-              <!-- Slide 4 -->
-              <div class="graphic-slide" data-slide="4" role="tabpanel" id="panel-tuto-4" aria-labelledby="tab-tuto-4">
-                <div class="graphic-icon-wrapper">
-                  <svg class="graphic-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path>
-                  </svg>
-                </div>
-                <h4 class="graphic-title">4. Lancement du flux</h4>
-                <p class="graphic-details">Branchez vos écouteurs, puis cliquez sur le bouton de lecture. Le flux audio de la traduction démarre. Ajustez le volume directement sur l'écran.</p>
-              </div>
-            </div>
-          </div>
+    <section class="section" aria-labelledby="t-aide">
+      <h2 id="t-aide" class="section-titre">Si vous n’entendez rien</h2>
+      <dl class="faits">
+        <div>
+          <dt>Touchez l’écran une fois</dt>
+          <dd>Certains téléphones attendent un geste avant de jouer le son. Le message « Touchez l’écran pour lancer le son » s’affiche dans ce cas.</dd>
         </div>
-      </section>
-
-      <!-- Best practices and advice -->
-      <section class="features-section" style="margin-bottom: 60px;" aria-labelledby="advice-heading">
-        <div class="section-title-wrapper">
-          <h2 id="advice-heading" class="section-title">Conseils pour une écoute optimale</h2>
-          <p class="section-subtitle">Afin de vivre la meilleure expérience possible durant la prédication.</p>
+        <div>
+          <dt>Vérifiez le volume</dt>
+          <dd>Montez le volume du téléphone avec ses boutons, puis le curseur de la page.</dd>
         </div>
-
-        <div class="features-grid">
-          <!-- Advice 1 -->
-          <div class="feature-card">
-            <div class="feature-icon-wrapper gold" aria-hidden="true">
-              <svg class="feature-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-              </svg>
-            </div>
-            <h3 class="feature-title">Apportez vos Écouteurs</h3>
-            <p class="feature-desc">N'oubliez pas d'apporter vos propres écouteurs ou casque audio à l'église. Pour le confort de vos voisins et le vôtre, l'écoute doit se faire exclusivement avec des écouteurs.</p>
-          </div>
-
-          <!-- Advice 2 -->
-          <div class="feature-card">
-            <div class="feature-icon-wrapper gold" aria-hidden="true">
-              <svg class="feature-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-              </svg>
-            </div>
-            <h3 class="feature-title">Batterie & Écran</h3>
-            <p class="feature-desc">La lecture audio continue consomme de l'énergie. Assurez-vous que votre téléphone est bien chargé avant le culte. Vous pouvez éteindre votre écran après avoir lancé la lecture pour économiser votre batterie.</p>
-          </div>
-
-          <!-- Advice 3 -->
-          <div class="feature-card">
-            <div class="feature-icon-wrapper gold" aria-hidden="true">
-              <svg class="feature-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.2 8H18.2"></path>
-              </svg>
-            </div>
-            <h3 class="feature-title">Reconnexion automatique</h3>
-            <p class="feature-desc">En cas de déplacement dans l'église ou de perte temporaire du signal Wi-Fi, l'application se reconnectera automatiquement au flux dès que la connexion sera rétablie. Ne fermez pas votre page.</p>
-          </div>
+        <div>
+          <dt>La traduction n’a pas commencé</dt>
+          <dd>Un message l’indique sur la page. Gardez-la ouverte&nbsp;: le son arrive dès que la régie lance la traduction.</dd>
         </div>
-      </section>
+        <div>
+          <dt>Toujours rien</dt>
+          <dd>Rechargez la page, puis touchez à nouveau votre langue. Si le réseau coupe, la page se reconnecte seule.</dd>
+        </div>
+      </dl>
+    </section>
 
-    </main>
+    <section class="appel" aria-labelledby="t-appel">
+      <h2 id="t-appel">Prêt&nbsp;?</h2>
+      <p>Branchez vos écouteurs et ouvrez la page d’écoute.</p>
+      <a href="/" class="btn btn-plein">Écouter la traduction</a>
+    </section>
+  </main>
 
-    <!-- Footer -->
-    <footer class="main-footer">
-      <ul class="footer-links">
-        <li><a href="/info">Présentation</a></li>
-        <li><a href="/info/tuto.html">Tutoriel Fidèles</a></li>
-        <li><a href="/">Console Régie</a></li>
-      </ul>
-      <p>&copy; 2026 TransAudio — ICC Cergy. Tous droits réservés.</p>
-    </footer>
-  </div>
+  <footer class="pied">
+    <span class="marque marque-petite"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#halo"/></svg>TransAudio</span>
+    <nav aria-label="Liens du pied de page">
+      <a href="/info">Présentation</a>
+      <a href="/admin/">Régie</a>
+    </nav>
+  </footer>
 
-  <script src="/info/app.js"></script>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="halo" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="3.2" fill="currentColor"/>
+      <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <path d="M11.2 11.2a6.8 6.8 0 0 0 0 9.6M20.8 11.2a6.8 6.8 0 0 1 0 9.6"/>
+        <path d="M7.3 7.3a12.3 12.3 0 0 0 0 17.4M24.7 7.3a12.3 12.3 0 0 1 0 17.4" opacity=".55"/>
+      </g>
+    </symbol>
+  </svg>
 </body>
 </html>
