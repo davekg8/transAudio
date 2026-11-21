@@ -1,16 +1,24 @@
 'use strict';
 
-require('dotenv').config();
+// .env is only used locally; online, variables come from the host.
+try {
+  require('dotenv').config();
+} catch {
+  /* dotenv not installed: rely on the environment */
+}
 
 const express = require('express');
 const http = require('http');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const QRCode = require('qrcode');
 
 const SessionManager = require('./session-manager');
 const AudioBroadcaster = require('./audio-broadcaster');
+const { LiveStreamHub } = require('./live-stream');
 const Logger = require('./logger');
 
 const logger = new Logger('Server');
@@ -21,24 +29,35 @@ const logger = new Logger('Server');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const API_KEY = process.env.GEMINI_API_KEY;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const RAW_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_PASSWORD = RAW_ADMIN_PASSWORD === 'your_admin_password_here' ? '' : RAW_ADMIN_PASSWORD;
 const CHURCH_NAME = process.env.CHURCH_NAME || 'Notre Église';
+// Public address shown to listeners (QR code). Set it when hosting online,
+// e.g. PUBLIC_URL=https://transaudio.mon-eglise.fr
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
+// Hosted online (Netlify sets URL; PUBLIC_URL can be set anywhere)?
+const IS_HOSTED = Boolean(PUBLIC_URL || process.env.NETLIFY || process.env.URL);
+const LANG_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
+const MAX_LANGUAGES = 6;
 const TARGET_LANGUAGES = (process.env.TARGET_LANGUAGES || 'en')
   .split(',')
   .map((l) => l.trim())
-  .filter(Boolean);
+  .filter((l) => LANG_RE.test(l));
 
-const currentSessionToken = uuidv4();
+const currentSessionToken = crypto.randomUUID();
 
-if (!API_KEY || API_KEY === 'your_api_key_here') {
-  logger.error('CRITICAL: GEMINI_API_KEY is not defined. Please copy .env.example to .env and set a valid API key.');
-  process.exit(1);
+const HAS_API_KEY = Boolean(API_KEY) && API_KEY !== 'your_api_key_here';
+if (!HAS_API_KEY) {
+  // Keep serving the pages (so a hosted deploy still starts) but refuse to translate.
+  logger.error('CRITICAL: GEMINI_API_KEY is not defined. Set it in .env (local) or in the host environment variables, then restart.');
 }
 
 if (ADMIN_PASSWORD) {
-  logger.info("Admin password protection is ENABLED.");
+  logger.info('Admin password protection is ENABLED.');
+} else if (IS_HOSTED) {
+  logger.error('ADMIN_PASSWORD is not set: the admin console is LOCKED until you define it (the server is reachable from the Internet).');
 } else {
-  logger.warn("⚠️ Admin password protection is DISABLED. Set ADMIN_PASSWORD in .env for production deployment.");
+  logger.warn('⚠️ Admin password protection is DISABLED. Set ADMIN_PASSWORD in .env before using the app outside a private network.');
 }
 
 /* -------------------------------------------------------------------- */
@@ -46,9 +65,8 @@ if (ADMIN_PASSWORD) {
 /* -------------------------------------------------------------------- */
 
 const app = express();
-
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.urlencoded({ extended: false, limit: '10kb' }));
 
 function parseCookies(req) {
   const list = {};
@@ -56,41 +74,52 @@ function parseCookies(req) {
   if (rc) {
     rc.split(';').forEach((cookie) => {
       const parts = cookie.split('=');
-      list[parts.shift().trim()] = decodeURI(parts.join('='));
+      const name = parts.shift().trim();
+      try {
+        list[name] = decodeURIComponent(parts.join('='));
+      } catch {
+        list[name] = parts.join('=');
+      }
     });
   }
   return list;
 }
 
-function adminAuthMiddleware(req, res, next) {
-  if (!ADMIN_PASSWORD) {
-    return next();
-  }
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
 
+function isAdminAuthenticated(req) {
+  if (!ADMIN_PASSWORD) return !IS_HOSTED;
+  const token = parseCookies(req)['transaudio_admin_auth'];
+  return Boolean(token) && safeEqual(token, currentSessionToken);
+}
+
+function adminAuthMiddleware(req, res, next) {
+  if (IS_HOSTED && !ADMIN_PASSWORD) {
+    return res.status(503).type('text/plain; charset=utf-8')
+      .send('Console verrouillée : définissez la variable ADMIN_PASSWORD sur l’hébergeur puis redéployez.');
+  }
   const subpath = req.path;
   if (subpath === '/login.html' || subpath === '/login.css' || subpath === '/login') {
     return next();
   }
-
-  const cookies = parseCookies(req);
-  const token = cookies['transaudio_admin_auth'];
-  if (token && token === currentSessionToken) {
-    return next();
-  }
-
+  if (isAdminAuthenticated(req)) return next();
   res.redirect('/admin/login.html');
 }
 
 app.use('/admin', adminAuthMiddleware);
 
 app.post('/admin/login', (req, res) => {
-  const { password } = req.body;
-  if (password === ADMIN_PASSWORD) {
+  const password = (req.body && req.body.password) || '';
+  if (ADMIN_PASSWORD && safeEqual(password, ADMIN_PASSWORD)) {
     res.cookie('transaudio_admin_auth', currentSessionToken, {
       httpOnly: true,
-      secure: req.protocol === 'https',
+      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
       sameSite: 'strict',
-      maxAge: 24 * 60 * 60 * 1000 // 1 day
+      maxAge: 24 * 60 * 60 * 1000, // 1 day
     });
     res.redirect('/admin/');
   } else {
@@ -98,11 +127,57 @@ app.post('/admin/login', (req, res) => {
   }
 });
 
+/* ── Live audio stream: one MP3 "radio" per language ──────────────── */
+
+const streams = new LiveStreamHub();
+
+app.get('/stream/:lang.mp3', (req, res) => {
+  const lang = req.params.lang;
+  const allowed = new Set(broadcaster.getAvailableLanguages());
+  if (!LANG_RE.test(lang) || !allowed.has(lang)) {
+    return res.status(404).end();
+  }
+  streams.get(lang).addListener(res).then(sendAdminStatus).catch((err) => {
+    logger.error('Failed to start live stream', err);
+    if (!res.headersSent) res.status(500).end();
+  });
+  res.on('close', () => setImmediate(sendAdminStatus));
+});
+
+/* ── QR code of the public address (for the admin screen / projection) ── */
+
+app.get('/qr.svg', async (req, res) => {
+  try {
+    const svg = await QRCode.toString(getPublicUrl(), { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+    res.type('image/svg+xml').set('Cache-Control', 'no-cache').send(svg);
+  } catch (err) {
+    logger.error('QR generation failed', err);
+    res.status(500).end();
+  }
+});
+
+// Phones must never run an outdated copy of the page after an update:
+// always revalidate (cheap 304 when unchanged).
+const staticOptions = {
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+};
+
+// Locate the static folders whether the server runs from the repo or from a
+// bundled copy (Netlify Server ships them via includedFiles).
+function findDir(name) {
+  const candidates = [
+    path.join(__dirname, '..', name),
+    path.join(process.cwd(), name),
+    path.join(__dirname, name),
+  ];
+  return candidates.find((dir) => fs.existsSync(path.join(dir))) || candidates[0];
+}
+
 // Serve presentation website under /info
-app.use('/info', express.static(path.join(__dirname, '..', 'website')));
+app.use('/info', express.static(findDir('website'), staticOptions));
 
 // Serve public client files
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(findDir('public'), staticOptions));
 
 const server = http.createServer(app);
 
@@ -112,11 +187,42 @@ const server = http.createServer(app);
 
 const sessionManager = new SessionManager({ apiKey: API_KEY });
 const broadcaster = new AudioBroadcaster({ churchName: CHURCH_NAME });
+broadcaster.setAvailableLanguages(TARGET_LANGUAGES);
+// True once an admin chose the languages since this server started.
+let languagesConfigured = false;
 
-// Wire SessionManager status changes to broadcaster
+/** Keep valid, unique language codes, at most MAX_LANGUAGES. */
+function cleanLanguages(list) {
+  if (!Array.isArray(list)) return [];
+  return [...new Set(list.filter((l) => typeof l === 'string' && LANG_RE.test(l)))].slice(0, MAX_LANGUAGES);
+}
+
+/** Offer these languages to the phones; disconnect listeners of removed ones. */
+function applyLanguages(languages) {
+  const removed = broadcaster.getAvailableLanguages().filter((l) => !languages.includes(l));
+  languagesConfigured = true;
+  broadcaster.setAvailableLanguages(languages);
+  removed.forEach((l) => streams.close(l));
+}
+
+// Translated audio → live MP3 streams (wired once, not on every start)
+sessionManager.on('audio', (lang, chunk) => {
+  streams.push(lang, chunk);
+});
+
+// Captions → listeners of that language + every admin console
+sessionManager.on('transcript', ({ language, kind, text }) => {
+  if (kind === 'output') broadcaster.sendCaption(language, text);
+  sendToAdmins({ type: 'transcript', language, kind, text });
+});
+
 sessionManager.on('session_status', ({ language, status }) => {
   broadcaster.notifySessionStatus(language, status);
   sendAdminStatus();
+});
+
+sessionManager.on('session_error', ({ language, error }) => {
+  sendToAdmins({ type: 'error', message: `Traduction [${language}] : ${error}` });
 });
 
 /* -------------------------------------------------------------------- */
@@ -125,57 +231,71 @@ sessionManager.on('session_status', ({ language, status }) => {
 
 const wss = new WebSocketServer({
   noServer: true,
-  maxPayload: 1024 * 1024 // 1 MB payload limit (Action 2.4)
+  maxPayload: 256 * 1024,
 });
 
 server.on('upgrade', (req, socket, head) => {
-  const pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
+  let pathname;
+  try {
+    pathname = new URL(req.url, 'http://localhost').pathname;
+  } catch {
+    socket.destroy();
+    return;
+  }
 
   if (pathname === '/ws/admin') {
-    if (ADMIN_PASSWORD) {
-      const cookies = parseCookies(req);
-      const token = cookies['transaudio_admin_auth'];
-      if (!token || token !== currentSessionToken) {
-        logger.warn(`Unauthorized Admin WebSocket connection attempt from ${req.socket.remoteAddress}`);
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
-      }
+    if (!isAdminAuthenticated(req)) {
+      logger.warn(`Unauthorized Admin WebSocket connection attempt from ${req.socket.remoteAddress}`);
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
     }
-
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      handleAdmin(ws, req);
-    });
+    wss.handleUpgrade(req, socket, head, (ws) => handleAdmin(ws, req));
   } else if (pathname === '/ws/listen') {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      handleClient(ws, req);
-    });
+    wss.handleUpgrade(req, socket, head, (ws) => handleClient(ws, req));
   } else {
     socket.destroy();
   }
 });
 
+// Heartbeat: drop sockets of phones that left the Wi-Fi without closing.
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 30000);
+
+function trackAlive(ws) {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+}
+
 /* -------------------------------------------------------------------- */
 /*  Admin WebSocket handler                                             */
 /* -------------------------------------------------------------------- */
 
-let adminWs = null;
-let statusInterval = null;
+/** Every open admin console (several tabs / devices are allowed). */
+const admins = new Set();
+
+const statusInterval = setInterval(sendAdminStatus, 2000);
 
 function handleAdmin(ws, req) {
   logger.info(`Admin connected via WebSocket from ${req.socket.remoteAddress}`);
-  adminWs = ws;
-
+  trackAlive(ws);
+  admins.add(ws);
   sendAdminStatus();
-  statusInterval = setInterval(sendAdminStatus, 2000);
 
-  // Simple Rate Limiting for Admin socket (Action 2.4)
   let messageCount = 0;
   const rateReset = setInterval(() => { messageCount = 0; }, 1000);
 
   ws.on('message', async (raw) => {
     messageCount++;
-    if (messageCount > 150) { // Limit to 150 msg/sec max
+    if (messageCount > 150) {
       logger.warn('Admin WebSocket exceeded rate limit. Dropping message.');
       return;
     }
@@ -185,20 +305,38 @@ function handleAdmin(ws, req) {
 
       switch (msg.type) {
         case 'start': {
-          const languages = msg.languages || TARGET_LANGUAGES;
+          const languages = cleanLanguages(Array.isArray(msg.languages) ? msg.languages : broadcaster.getAvailableLanguages());
+          if (languages.length === 0) {
+            sendToWs(ws, { type: 'error', message: 'Aucune langue valide sélectionnée.' });
+            break;
+          }
+          if (!HAS_API_KEY) {
+            sendToWs(ws, { type: 'error', message: 'Clé GEMINI_API_KEY manquante : ajoutez-la puis redémarrez/redéployez le serveur.' });
+            break;
+          }
           logger.info(`Admin requested start sessions for: ${languages.join(', ')}`);
 
+          applyLanguages(languages);
           await sessionManager.startSession(languages);
-
-          for (const lang of languages) {
-            sessionManager.onTranslatedAudio(lang, (chunk) => {
-              broadcaster.broadcast(lang, chunk);
-            });
-          }
-
-          broadcaster.setAvailableLanguages(languages);
           broadcaster.notifyStreamingState(true);
           sendAdminStatus();
+          break;
+        }
+
+        case 'set_languages': {
+          const languages = cleanLanguages(msg.languages);
+          if (languages.length === 0) {
+            sendToWs(ws, { type: 'error', message: 'Gardez au moins une langue.' });
+            sendAdminStatus();
+            break;
+          }
+          logger.info(`Admin set offered languages: ${languages.join(', ')}`);
+          applyLanguages(languages);
+          sendAdminStatus();
+          if (sessionManager.isStreaming) {
+            await sessionManager.updateLanguages(languages);
+            sendAdminStatus();
+          }
           break;
         }
 
@@ -211,7 +349,7 @@ function handleAdmin(ws, req) {
         }
 
         case 'audio': {
-          if (msg.data && sessionManager.isStreaming) {
+          if (typeof msg.data === 'string' && sessionManager.isStreaming) {
             sessionManager.feedAudio(msg.data);
           }
           break;
@@ -233,12 +371,8 @@ function handleAdmin(ws, req) {
 
   ws.on('close', () => {
     logger.info('Admin WebSocket disconnected');
-    adminWs = null;
+    admins.delete(ws);
     clearInterval(rateReset);
-    if (statusInterval) {
-      clearInterval(statusInterval);
-      statusInterval = null;
-    }
   });
 
   ws.on('error', (err) => {
@@ -246,55 +380,62 @@ function handleAdmin(ws, req) {
   });
 }
 
+function sendToAdmins(obj) {
+  if (admins.size === 0) return;
+  const raw = JSON.stringify(obj);
+  for (const ws of admins) {
+    if (ws.readyState === 1) ws.send(raw);
+  }
+}
+
 function sendAdminStatus() {
-  if (!adminWs || adminWs.readyState !== 1) return;
+  if (admins.size === 0) return;
 
   const sessionStatus = sessionManager.getStatus();
-  const clientCounts = broadcaster.getClientCounts();
-  const localIP = getLocalIP();
-  const serverUrl = `http://${localIP}:${PORT}`;
-
-  sendToWs(adminWs, {
+  sendToAdmins({
     type: 'status',
     streaming: sessionStatus.streaming,
     sessions: sessionStatus.sessions,
-    clients: clientCounts,
+    clients: streams.listenerCounts(),   // phones actually receiving audio
+    visitors: broadcaster.totalClients, // phones with the page open
     churchName: CHURCH_NAME,
-    serverUrl: serverUrl,
-    localIP: localIP,
-    port: PORT
+    serverUrl: getPublicUrl(),
+    targetLanguages: TARGET_LANGUAGES,
+    offeredLanguages: broadcaster.getAvailableLanguages(),
+    languagesConfigured,
+    maxLanguages: MAX_LANGUAGES,
+    port: PORT,
   });
 }
 
 /* -------------------------------------------------------------------- */
-/*  Client WebSocket handler                                            */
+/*  Client WebSocket handler (page state + captions)                    */
 /* -------------------------------------------------------------------- */
 
 function handleClient(ws, req) {
   const ip = req.socket.remoteAddress;
-  logger.info(`Listener client connected from ${ip}`);
+  logger.debug(`Listener page connected from ${ip}`);
+  trackAlive(ws);
+  broadcaster.addPage(ws);
 
-  // Rate Limiting for listener clients (Action 2.4)
   let clientMsgCount = 0;
   const clientRateReset = setInterval(() => { clientMsgCount = 0; }, 1000);
 
   ws.on('message', (raw) => {
     clientMsgCount++;
-    if (clientMsgCount > 10) { // Listener clients shouldn't send > 10 msgs/sec
-      logger.warn(`Client ${ip} exceeded rate limit. Dropping message.`);
-      return;
-    }
+    if (clientMsgCount > 10) return;
 
     try {
       const msg = JSON.parse(raw.toString());
-
-      if (msg.type === 'join' && msg.language) {
-        broadcaster.removeClient(ws);
+      if (msg.type === 'join' && typeof msg.language === 'string' && LANG_RE.test(msg.language)) {
         broadcaster.addClient(ws, msg.language);
+        sendAdminStatus();
+      } else if (msg.type === 'leave') {
+        broadcaster.addPage(ws);
         sendAdminStatus();
       }
     } catch (err) {
-      logger.error(`Error processing client message from ${ip}`, err);
+      logger.debug(`Invalid client message from ${ip}: ${err.message}`);
     }
   });
 
@@ -319,16 +460,36 @@ function sendToWs(ws, obj) {
   }
 }
 
+function getPublicUrl() {
+  if (PUBLIC_URL) return PUBLIC_URL;
+  if (process.env.URL) return process.env.URL.replace(/\/+$/, ''); // set by Netlify
+  return `http://${getLocalIP()}:${PORT}`;
+}
+
 function getLocalIP() {
+  // Allow manual override (e.g. LOCAL_IP=192.168.1.108 in .env)
+  if (process.env.LOCAL_IP) return process.env.LOCAL_IP;
+
+  // Skip virtual adapters (WSL, Hyper-V, VPN, Docker, VirtualBox...) and
+  // link-local addresses, then prefer Wi-Fi/Ethernet on a home LAN range.
+  const VIRTUAL = /vethernet|wsl|hyper-v|virtual|vbox|vmware|docker|vgate|tailscale|zerotier|hamachi|tun|tap|vpn|loopback|bluetooth/i;
+  const candidates = [];
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address;
-      }
+      if (iface.family !== 'IPv4' || iface.internal) continue;
+      if (iface.address.startsWith('169.254.')) continue;
+      let score = 0;
+      if (!VIRTUAL.test(name)) score += 2;
+      if (/wi-?fi|wlan|wireless|ethernet|^en|^eth/i.test(name)) score += 1;
+      if (iface.address.startsWith('192.168.')) score += 1;
+      // Windows Mobile Hotspot: listeners connect directly to the PC
+      if (iface.address.startsWith('192.168.137.')) score += 3;
+      candidates.push({ address: iface.address, score });
     }
   }
-  return '127.0.0.1';
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.length ? candidates[0].address : '127.0.0.1';
 }
 
 /* -------------------------------------------------------------------- */
@@ -336,19 +497,19 @@ function getLocalIP() {
 /* -------------------------------------------------------------------- */
 
 server.listen(PORT, () => {
-  const localIP = getLocalIP();
+  const publicUrl = getPublicUrl();
 
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════╗');
   console.log('║         ✝  TransAudio — Traduction en Direct  ✝        ║');
   console.log('╠══════════════════════════════════════════════════════════╣');
-  console.log(`║  Église : ${CHURCH_NAME.padEnd(45)}║`);
-  console.log(`║  Admin  : http://localhost:${PORT}/admin/                  ║`);
-  console.log(`║  Public : http://${localIP}:${PORT}                  ║`);
-  console.log(`║  Langues: ${TARGET_LANGUAGES.join(', ').padEnd(45)}║`);
+  console.log(`║  Église : ${CHURCH_NAME.padEnd(47)}║`);
+  console.log(`║  Admin  : ${`http://localhost:${PORT}/admin/`.padEnd(47)}║`);
+  console.log(`║  Public : ${publicUrl.padEnd(47)}║`);
+  console.log(`║  Langues: ${TARGET_LANGUAGES.join(', ').padEnd(47)}║`);
   console.log('╚══════════════════════════════════════════════════════════╝');
   console.log('');
-  console.log(`Partagez cette URL avec les fidèles : http://${localIP}:${PORT}`);
+  console.log(`Partagez cette URL avec les fidèles : ${publicUrl}`);
   console.log('');
 });
 
@@ -356,16 +517,35 @@ server.listen(PORT, () => {
 /*  Graceful shutdown                                                   */
 /* -------------------------------------------------------------------- */
 
-process.on('SIGINT', async () => {
-  logger.info('Shutting down server…');
-  await sessionManager.stopSession();
+let shuttingDown = false;
+function closeEverything() {
+  clearInterval(statusInterval);
+  clearInterval(heartbeat);
   broadcaster.notifyStreamingState(false);
-
-  if (statusInterval) clearInterval(statusInterval);
-
+  streams.closeAll();
+  // 1012 = "service restart": clients reconnect immediately.
+  for (const ws of wss.clients) ws.close(1012, 'Server restarting');
   wss.close();
-  server.close(() => {
-    logger.info('Server gracefully terminated.');
-    process.exit(0);
-  });
+  return sessionManager.stopSession();
+}
+
+// Local Ctrl+C: stop and exit.
+process.on('SIGINT', async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info('Shutting down server…');
+  await closeEverything();
+  server.close(() => process.exit(0));
+  // Live streams are long-lived connections: don't wait for them forever.
+  setTimeout(() => process.exit(0), 2000).unref();
+});
+
+// Hosting platform replacing the instance (deploy, 8 h rotation): close the
+// connections cleanly and let the platform end the process.
+process.on('SIGTERM', async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info('SIGTERM received — closing connections…');
+  await closeEverything();
+  server.close();
 });

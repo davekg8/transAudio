@@ -1,12 +1,19 @@
 /**
- * TransAudio — Main Application Controller
- * Manages WebSocket connection, UI screens, and audio playback.
+ * TransAudio — Listener page
+ *
+ * The translated audio is a continuous MP3 stream played by a plain <audio>
+ * element: it keeps playing with the screen locked (iOS and Android), shows
+ * lock-screen controls, and needs ~6 KB/s per phone.
+ * A WebSocket carries the page state (languages, live/not live) and captions.
  */
 ;(function () {
   'use strict';
 
   /* ── Configuration ──────────────────────────────────── */
   const WS_PATH = '/ws/listen';
+  const MAX_LAG_SECONDS = 4;      // beyond this, jump back to live
+  const CATCH_UP_SECONDS = 1.5;   // beyond this, play slightly faster
+  const MAX_CAPTION_LINES = 4;
 
   /* Map of language codes → { flag, name } */
   const LANG_META = {
@@ -28,6 +35,20 @@
     nl: { flag: '🇳🇱', name: 'Nederlands' },
     pl: { flag: '🇵🇱', name: 'Polski' },
     uk: { flag: '🇺🇦', name: 'Українська' },
+    ro: { flag: '🇷🇴', name: 'Română' },
+    fa: { flag: '🇮🇷', name: 'فارسی' },
+    vi: { flag: '🇻🇳', name: 'Tiếng Việt' },
+    ta: { flag: '🇱🇰', name: 'தமிழ்' },
+    am: { flag: '🇪🇹', name: 'አማርኛ' },
+  };
+
+  // French names, shown next to each native name.
+  const LANG_FR = {
+    en: 'Anglais', fr: 'Français', es: 'Espagnol', pt: 'Portugais', de: 'Allemand',
+    it: 'Italien', zh: 'Chinois', ar: 'Arabe', ru: 'Russe', ko: 'Coréen', ja: 'Japonais',
+    sw: 'Swahili', hi: 'Hindi', ln: 'Lingala', tr: 'Turc', nl: 'Néerlandais',
+    pl: 'Polonais', uk: 'Ukrainien', ro: 'Roumain', fa: 'Persan', vi: 'Vietnamien',
+    ta: 'Tamoul', am: 'Amharique',
   };
 
   /* ── DOM References ─────────────────────────────────── */
@@ -43,41 +64,38 @@
   const statusDot       = $('#status-dot');
   const statusText      = $('#status-text');
   const waveContainer   = $('#wave-container');
-  const waveBars        = waveContainer ? waveContainer.querySelectorAll('.wave-bar') : [];
   const churchNameEl    = $('#church-name');
+  const captionsEl      = $('#captions');
+  const player          = $('#player');
 
   /* ── State ──────────────────────────────────────────── */
   let ws = null;
-  let audioPlayer = null;
-  let currentLang = null;
-  let isStreaming = false;           // whether the server is actively streaming
-  let reconnectDelay = 1000;         // exponential backoff
+  let currentLang = null;     // language the user is listening to
+  let isStreaming = false;    // translation running on the server
+  let churchName = churchNameEl ? churchNameEl.textContent : 'TransAudio';
+  let reconnectDelay = 1000;
   let reconnectTimer = null;
-  let animFrameId = null;
-  let wasListening = false;          // were we in listening screen before disconnect?
-  let selectedLangBeforeDisconnect = null;
+  let audioRetryTimer = null;
+  let speakingTimer = null;
+  let captionLines = [];
 
   /* ── Init ───────────────────────────────────────────── */
+  bindStaticLangButtons();
   connectWebSocket();
 
-  /* ── WebSocket ──────────────────────────────────────── */
+  /* ── WebSocket (state + captions) ───────────────────── */
   function connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${location.host}${WS_PATH}`;
-
-    ws = new WebSocket(url);
+    ws = new WebSocket(`${proto}//${location.host}${WS_PATH}`);
 
     ws.onopen = () => {
-      console.log('[WS] Connected to server');
       reconnectDelay = 1000;
       clearTimeout(reconnectTimer);
       updateConnectionStatus(true);
-
-      // If listening before disconnect, auto-rejoin
-      if (wasListening && selectedLangBeforeDisconnect) {
-        joinLanguage(selectedLangBeforeDisconnect);
-        wasListening = false;
-      } else if (!currentLang) {
+      if (currentLang) {
+        wsSend({ type: 'join', language: currentLang });
+        showScreen('listening');
+      } else {
         showScreen('welcome');
       }
     };
@@ -88,13 +106,18 @@
 
       switch (msg.type) {
         case 'languages':
-          handleLanguages(msg.available || []);
-          break;
-        case 'audio':
-          handleAudio(msg.data);
+          renderLanguages(msg.available || []);
+          // The admin removed the language this phone was listening to.
+          if (currentLang && !(msg.available || []).includes(currentLang)) {
+            stopListening();
+            showScreen('welcome');
+          }
           break;
         case 'info':
           handleInfo(msg);
+          break;
+        case 'caption':
+          addCaption(msg.text);
           break;
         case 'session_status':
           handleSessionStatus(msg);
@@ -103,132 +126,219 @@
     };
 
     ws.onclose = () => {
-      console.log('[WS] Disconnected from server');
       updateConnectionStatus(false);
-
-      if (currentLang) {
-        wasListening = true;
-        selectedLangBeforeDisconnect = currentLang;
-      }
-
-      showScreen('reconnect');
-      scheduleReconnect();
+      // While listening, the audio stream may still be fine: keep the screen.
+      if (!currentLang) showScreen('reconnect');
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectWebSocket, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 10000);
     };
 
     ws.onerror = () => {};
   }
 
-  function scheduleReconnect() {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(() => {
-      connectWebSocket();
-      reconnectDelay = Math.min(reconnectDelay * 2, 10000);
-    }, reconnectDelay);
-  }
-
   function wsSend(obj) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(obj));
-    }
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
   }
 
-  /* ── Handlers ───────────────────────────────────────── */
-
-  function handleLanguages(available) {
+  /* ── Languages ──────────────────────────────────────── */
+  function renderLanguages(available) {
+    if (!available.length) return;
+    if (langGrid.dataset.langs === available.join(',')) return;
+    langGrid.dataset.langs = available.join(',');
     langGrid.innerHTML = '';
     available.forEach((code) => {
-      const meta = LANG_META[code] || { flag: '🌐', name: code };
+      const meta = LANG_META[code] || { name: code };
       const btn = document.createElement('button');
       btn.className = 'lang-btn';
       btn.type = 'button';
       btn.dataset.lang = code;
-      btn.innerHTML = `<span class="flag" aria-hidden="true">${meta.flag}</span><span>${meta.name}</span>`;
-      btn.addEventListener('click', () => onLangSelect(code));
+      btn.innerHTML = '<span class="lang-natif"></span><span class="lang-fr"></span>';
+      btn.firstElementChild.textContent = meta.name;
+      const fr = LANG_FR[code] || '';
+      const plain = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+      btn.lastElementChild.textContent = fr && plain(fr) !== plain(meta.name) ? fr : '';
+      btn.firstElementChild.lang = code;
+      btn.addEventListener('click', () => joinLanguage(code));
       langGrid.appendChild(btn);
     });
   }
 
-  function onLangSelect(langCode) {
-    joinLanguage(langCode);
+  function bindStaticLangButtons() {
+    langGrid.querySelectorAll('.lang-btn').forEach((btn) => {
+      btn.addEventListener('click', () => joinLanguage(btn.dataset.lang));
+    });
   }
 
+  /* ── Listening ──────────────────────────────────────── */
   function joinLanguage(langCode) {
+    if (!langCode) return;
     currentLang = langCode;
     const meta = LANG_META[langCode] || { flag: '🌐', name: langCode };
-    listeningLang.textContent = `${meta.flag}  ${meta.name}`;
+    listeningLang.textContent = meta.name;
+    listeningLang.lang = langCode;
+    clearCaptions();
 
     wsSend({ type: 'join', language: langCode });
-
-    if (!audioPlayer) {
-      audioPlayer = new AudioPlayer(24000, 1.0);
-    }
-    audioPlayer.setVolume(volumeSlider.value / 100);
-    audioPlayer.start();
-
+    // Must run inside the tap handler so mobile browsers allow playback.
+    startAudio();
+    setupMediaSession(meta.name);
     showScreen('listening');
-    startVisualization();
   }
 
-  function handleAudio(base64Data) {
-    if (audioPlayer) {
-      audioPlayer.feed(base64Data);
-    }
+  function stopListening() {
+    currentLang = null;
+    clearTimeout(audioRetryTimer);
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+    setSpeaking(false);
+    wsSend({ type: 'leave' });
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
   }
 
-  function handleInfo(msg) {
-    if (msg.churchName && churchNameEl) {
-      churchNameEl.textContent = msg.churchName;
-    }
-    if (typeof msg.streaming === 'boolean') {
-      isStreaming = msg.streaming;
-    }
-    if (waitingBanner) {
-      if (!isStreaming) {
-        waitingBanner.classList.add('visible');
-      } else {
-        waitingBanner.classList.remove('visible');
-      }
-    }
-  }
-
-  function handleSessionStatus(msg) {
-    if (msg.language === currentLang) {
-      if (msg.state === 'reconnecting') {
-        updateStatusText('Reconnexion de la traduction...');
-      } else if (msg.state === 'connected') {
-        updateStatusText('Connecté');
-      }
-    }
-  }
-
-  /* ── Stop ────────────────────────────────────────────── */
   btnStop.addEventListener('click', () => {
     stopListening();
     showScreen('welcome');
   });
 
-  function stopListening() {
-    currentLang = null;
-    if (audioPlayer) {
-      audioPlayer.stop();
+  /* ── Audio stream ───────────────────────────────────── */
+  function startAudio() {
+    if (!currentLang) return;
+    clearTimeout(audioRetryTimer);
+    player.src = `/stream/${encodeURIComponent(currentLang)}.mp3?t=${Date.now()}`;
+    player.volume = volumeSlider.value / 100;
+    player.playbackRate = 1;
+    const p = player.play();
+    if (p && p.catch) {
+      p.catch((err) => {
+        if (err && err.name === 'NotAllowedError') {
+          updateStatusText('Touchez l’écran pour lancer le son');
+          document.addEventListener('click', startAudio, { once: true });
+        } else {
+          retryAudio();
+        }
+      });
     }
-    stopVisualization();
-    if (waveContainer) waveContainer.classList.remove('active');
-    waveBars.forEach(b => b.style.height = '');
   }
 
-  /* ── Volume ─────────────────────────────────────────── */
-  volumeSlider.addEventListener('input', () => {
-    if (audioPlayer) {
-      audioPlayer.setVolume(volumeSlider.value / 100);
-    }
+  let lastRetry = 0;
+  function retryAudio() {
+    if (!currentLang) return;
+    updateStatusText('Reconnexion du son…');
+    clearTimeout(audioRetryTimer);
+    // First retry is immediate (planned cut by the host), then back off.
+    const delay = Date.now() - lastRetry > 10000 ? 200 : 2000;
+    lastRetry = Date.now();
+    audioRetryTimer = setTimeout(startAudio, delay);
+  }
+
+  player.addEventListener('playing', () => updateStatusText(isStreaming ? 'En direct' : 'En attente du message'));
+  player.addEventListener('error', () => {
+    if (!currentLang) return;
+    const code = player.error ? player.error.code : '?';
+    console.warn('[Audio] error', code);
+    retryAudio();
+    updateStatusText(`Problème de son (code ${code}), nouvel essai…`);
+  });
+  player.addEventListener('ended', retryAudio);
+  player.addEventListener('stalled', () => { if (currentLang && player.paused) retryAudio(); });
+
+  // The user may pause from the lock screen: resume = jump back to live.
+  player.addEventListener('pause', () => {
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   });
 
-  /* ── Screen Management ──────────────────────────────── */
+  // Keep the delay low: a live stream must never drift behind the speaker.
+  setInterval(() => {
+    if (!currentLang || player.paused || !player.buffered.length) return;
+    const lag = player.buffered.end(player.buffered.length - 1) - player.currentTime;
+    if (lag > MAX_LAG_SECONDS) {
+      startAudio(); // reconnect at the live edge
+    } else {
+      player.playbackRate = lag > CATCH_UP_SECONDS ? 1.08 : 1;
+    }
+  }, 2000);
+
+  volumeSlider.addEventListener('input', () => {
+    player.volume = volumeSlider.value / 100;
+  });
+
+  function setupMediaSession(langName) {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: `Traduction en direct — ${langName}`,
+        artist: churchName,
+        album: 'TransAudio',
+      });
+      navigator.mediaSession.setActionHandler('play', startAudio);
+      navigator.mediaSession.setActionHandler('pause', () => player.pause());
+      navigator.mediaSession.setActionHandler('stop', () => { stopListening(); showScreen('welcome'); });
+      navigator.mediaSession.playbackState = 'playing';
+    } catch (e) { /* optional feature */ }
+  }
+
+  /* ── Captions ───────────────────────────────────────── */
+  function addCaption(text) {
+    if (!currentLang || !text) return;
+    // Gemini sends the translation in small pieces: merge them into lines.
+    const last = captionLines[captionLines.length - 1];
+    if (last !== undefined && !/[.!?…]\s*$/.test(last) && last.length < 160) {
+      captionLines[captionLines.length - 1] = (last + text).replace(/\s+/g, ' ');
+    } else {
+      captionLines.push(text.trim());
+    }
+    captionLines = captionLines.slice(-MAX_CAPTION_LINES);
+    renderCaptions();
+    setSpeaking(true);
+  }
+
+  function renderCaptions() {
+    captionsEl.replaceChildren(...captionLines.map((line) => {
+      const p = document.createElement('p');
+      p.textContent = line;
+      return p;
+    }));
+  }
+
+  function clearCaptions() {
+    captionLines = [];
+    const p = document.createElement('p');
+    p.className = 'captions-placeholder';
+    p.textContent = 'Les sous-titres apparaîtront ici pendant la traduction.';
+    captionsEl.replaceChildren(p);
+  }
+
+  function setSpeaking(on) {
+    if (!waveContainer) return;
+    waveContainer.classList.toggle('speaking', on);
+    clearTimeout(speakingTimer);
+    if (on) speakingTimer = setTimeout(() => setSpeaking(false), 2500);
+  }
+
+  /* ── Server state ───────────────────────────────────── */
+  function handleInfo(msg) {
+    if (msg.churchName) {
+      churchName = msg.churchName;
+      if (churchNameEl) churchNameEl.textContent = msg.churchName;
+    }
+    if (typeof msg.streaming === 'boolean') isStreaming = msg.streaming;
+    if (waitingBanner) waitingBanner.classList.toggle('visible', !isStreaming);
+    if (currentLang && !player.paused) {
+      updateStatusText(isStreaming ? 'En direct' : 'En attente du message');
+    }
+  }
+
+  function handleSessionStatus(msg) {
+    if (msg.language !== currentLang) return;
+    if (msg.state === 'reconnecting') updateStatusText('Reconnexion de la traduction…');
+    else if (msg.state === 'connected') updateStatusText('En direct');
+  }
+
+  /* ── Screens & status ───────────────────────────────── */
   function showScreen(name) {
-    [screenWelcome, screenListening, screenReconnect].forEach((s) => {
-      if (s) s.classList.remove('active');
-    });
+    [screenWelcome, screenListening, screenReconnect].forEach((s) => s && s.classList.remove('active'));
     const target =
       name === 'welcome'   ? screenWelcome :
       name === 'listening' ? screenListening :
@@ -239,58 +349,17 @@
     }
   }
 
-  /* ── Connection Status Indicator ────────────────────── */
   function updateConnectionStatus(connected) {
-    if (statusDot) {
-      if (connected) {
-        statusDot.classList.remove('disconnected');
-      } else {
-        statusDot.classList.add('disconnected');
-      }
-    }
-    updateStatusText(connected ? 'Connecté' : 'Déconnecté');
+    if (statusDot) statusDot.classList.toggle('disconnected', !connected);
+    if (!connected) updateStatusText('Connexion au serveur perdue…');
   }
 
   function updateStatusText(text) {
-    if (statusText) {
-      statusText.textContent = text;
-    }
+    if (statusText) statusText.textContent = text;
+    const box = statusText && statusText.parentElement;
+    if (!box) return;
+    box.classList.toggle('direct', text === 'En direct');
+    box.classList.toggle('coupe', /perdue/i.test(text));
+    box.classList.toggle('veille', text !== 'En direct' && !/perdue/i.test(text));
   }
-
-  /* ── Audio Visualization ────────────────────────────── */
-  function startVisualization() {
-    stopVisualization();
-    if (waveContainer) waveContainer.classList.add('active');
-
-    function tick() {
-      if (!audioPlayer) return;
-      const level = audioPlayer.getLevel();
-
-      const baseH = 6;
-      const maxExtra = 52;
-      waveBars.forEach((bar) => {
-        const rand = 0.6 + Math.random() * 0.4;
-        const h = baseH + level * maxExtra * rand;
-        bar.style.height = `${Math.min(h, 60)}px`;
-      });
-
-      animFrameId = requestAnimationFrame(tick);
-    }
-    tick();
-  }
-
-  function stopVisualization() {
-    if (animFrameId) {
-      cancelAnimationFrame(animFrameId);
-      animFrameId = null;
-    }
-  }
-
-  langGrid.querySelectorAll('.lang-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const code = btn.dataset.lang;
-      if (code) onLangSelect(code);
-    });
-  });
-
 })();

@@ -1,0 +1,140 @@
+/* ══════════════════════════════════════════════════════════════
+   TransAudio — identité visuelle partagée
+   « Vert-de-gris » : la patine des cloches, qui portent le son
+   d'une église jusqu'aux gens. Sombre et recueilli par défaut,
+   clair si l'appareil est réglé en clair.
+   Polices système uniquement : tout fonctionne sans Internet.
+   ══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Sombre (salle de culte) */
+  --nuit:      #131a1f;  /* fond */
+  --voute:     #1a2429;  /* surfaces */
+  --voute-2:   #223038;  /* surfaces surélevées, champs */
+  --trait:     #2e3e46;  /* filets, bordures */
+  --cire:      #ede7da;  /* texte principal */
+  --brume:     #9aaaae;  /* texte secondaire */
+  --patine:    #8ccfb8;  /* accent vert-de-gris */
+  --patine-fort: #b5e3d2;
+  --patine-voile: rgba(140, 207, 184, 0.14);
+  --sur-patine: #0f2a22; /* texte posé sur l'accent */
+  --alerte:    #e8907f;
+  --alerte-voile: rgba(232, 144, 127, 0.14);
+  --veille:    #e2c27d;  /* reconnexion, attente */
+
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+           "URW Palladio L", P052, ui-serif, Georgia, serif;
+  --sans:  system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans",
+           "Helvetica Neue", Arial, sans-serif;
+
+  /* Échelle typographique (quarte augmentée ~1.333) */
+  --t-xs: 0.8125rem;
+  --t-sm: 0.9375rem;
+  --t-md: 1.0625rem;
+  --t-lg: 1.375rem;
+  --t-xl: 1.875rem;
+  --t-2xl: 2.5rem;
+  --t-3xl: clamp(2.75rem, 9vw, 4.5rem);
+
+  --r-champ: 10px;   /* champs, boutons */
+  --r-bloc: 18px;    /* panneaux */
+  --r-pilule: 999px;
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --nuit:      #e9eeec;
+    --voute:     #f6f8f7;
+    --voute-2:   #ffffff;
+    --trait:     #c9d4d0;
+    --cire:      #15211e;
+    --brume:     #4e5d59;
+    --patine:    #2b7562;
+    --patine-fort: #1d5a4a;
+    --patine-voile: rgba(43, 117, 98, 0.1);
+    --sur-patine: #ffffff;
+    --alerte:    #a8432f;
+    --alerte-voile: rgba(168, 67, 47, 0.09);
+    --veille:    #8a6414;
+    color-scheme: light;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--nuit);
+  color: var(--cire);
+  font-family: var(--sans);
+  font-size: var(--t-md);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; line-height: 1.15; margin: 0; letter-spacing: -0.01em; }
+p { margin: 0; }
+a { color: var(--patine); }
+button, input, select { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--patine);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Marque : le halo (point + ondes) */
+.marque {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--serif);
+  font-size: var(--t-lg);
+  font-weight: 600;
+  color: var(--cire);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+.marque svg { width: 1.6em; height: 1.6em; color: var(--patine); flex: none; }
+
+/* Pastille d'état (en direct, en attente…) */
+.etat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--t-sm);
+  color: var(--brume);
+}
+.etat-point {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--brume);
+  flex: none;
+}
+.etat.direct { color: var(--patine); }
+.etat.direct .etat-point { background: var(--patine); box-shadow: 0 0 0 4px var(--patine-voile); }
+.etat.veille .etat-point { background: var(--veille); }
+.etat.coupe { color: var(--alerte); }
+.etat.coupe .etat-point { background: var(--alerte); }
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

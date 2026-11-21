@@ -9,9 +9,11 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "framer-motion": "^12.42.2",
+    "qrcode": "^1.5.4",
     "uuid": "^11.1.0",
     "ws": "^8.18.0"
   },

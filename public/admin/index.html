@@ -3,196 +3,149 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TransAudio — Centre de Contrôle</title>
-  <link rel="stylesheet" href="admin.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✝️</text></svg>">
+  <meta name="color-scheme" content="dark light">
+  <title>Régie — TransAudio</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/brand.css?v=4">
+  <link rel="stylesheet" href="admin.css?v=4">
 </head>
 <body>
 
-  <div class="app-container">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="halo" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="3.2" fill="currentColor"/>
+      <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <path d="M11.2 11.2a6.8 6.8 0 0 0 0 9.6M20.8 11.2a6.8 6.8 0 0 1 0 9.6"/>
+        <path d="M7.3 7.3a12.3 12.3 0 0 0 0 17.4M24.7 7.3a12.3 12.3 0 0 1 0 17.4" opacity=".55"/>
+      </g>
+    </symbol>
+  </svg>
 
-    <!-- ====== HEADER ====== -->
-    <header class="header">
-      <div class="header-brand">
-        <div class="header-icon">✝</div>
-        <div>
-          <div class="header-title">TransAudio</div>
-          <div class="header-subtitle">Centre de Contrôle</div>
-        </div>
+  <div class="regie">
+
+    <header class="entete">
+      <div class="entete-marque">
+        <span class="marque"><svg aria-hidden="true"><use href="#halo"/></svg>TransAudio</span>
+        <span class="entete-role">Régie</span>
       </div>
-      <div style="display:flex; align-items:center; gap:14px;">
-        <div class="streaming-badge" id="streamingBadge">
-          <span class="rec-dot"></span>
-          EN DIRECT
+      <div class="entete-etats">
+        <div class="badge-direct" id="streamingBadge">
+          <span class="etat-point" aria-hidden="true"></span>
+          En direct
         </div>
-        <div class="header-status">
-          <span class="status-dot" id="wsStatusDot"></span>
+        <div class="etat" title="Liaison avec le serveur">
+          <span class="status-dot" id="wsStatusDot" aria-hidden="true"></span>
           <span id="wsStatusText">Déconnecté</span>
         </div>
       </div>
     </header>
 
-    <!-- ====== DASHBOARD GRID ====== -->
-    <div class="dashboard-grid">
+    <main class="tableau">
 
-      <!-- --- Audio Input --- -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-icon">🎤</div>
-          <div class="card-title">Entrée Audio</div>
+      <!-- Diffusion : l'action principale -->
+      <section class="panneau panneau-diffusion" aria-labelledby="t-diffusion">
+        <h2 id="t-diffusion" class="panneau-titre">Diffusion</h2>
+
+        <button class="btn-main-action start" id="btnToggle" type="button">
+          <span class="btn-icon"></span> Lancer la traduction
+        </button>
+
+        <dl class="diffusion-infos">
+          <div>
+            <dt>État</dt>
+            <dd id="statStatus">Inactif</dd>
+          </div>
+          <div>
+            <dt>Durée</dt>
+            <dd class="chiffres" id="uptimeValue">00:00:00</dd>
+          </div>
+        </dl>
+
+        <div class="bloc">
+          <h3 class="bloc-titre">Langues proposées aux fidèles</h3>
+          <div class="language-grid" id="languageGrid"></div>
+          <p class="language-hint">Cochez ou décochez : les téléphones sont mis à jour tout de suite, même pendant la traduction. 6 langues au plus.</p>
         </div>
-        <div class="audio-select-group">
+
+        <div class="bloc">
+          <h3 class="bloc-titre"><label for="audioDeviceSelect">Source audio</label></h3>
           <div class="select-wrapper">
             <select id="audioDeviceSelect">
-              <option value="">Chargement des périphériques…</option>
+              <option value="">Recherche des entrées audio…</option>
             </select>
           </div>
-          <div class="device-name-label" id="deviceNameLabel">Aucun périphérique sélectionné</div>
-          <div class="vu-meter-container">
-            <div class="vu-meter-label">
-              <span>Niveau Audio</span>
-              <span id="vuLevelDb">-∞ dB</span>
-            </div>
-            <div class="vu-meter-track">
-              <div class="vu-meter-fill" id="vuMeterFill"></div>
-            </div>
-            <div class="vu-meter-ticks">
-              <span>-60</span>
-              <span>-40</span>
-              <span>-20</span>
-              <span>-10</span>
-              <span>0 dB</span>
+          <div class="device-name-label" id="deviceNameLabel">Aucune entrée sélectionnée</div>
+
+          <div class="vu">
+            <div class="vu-track"><div class="vu-meter-fill" id="vuMeterFill"></div></div>
+            <div class="vu-legende">
+              <span>Niveau</span>
+              <span class="chiffres" id="vuLevelDb">-∞ dB</span>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- --- Translation Control --- -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-icon">🌐</div>
-          <div class="card-title">Contrôle de Traduction</div>
+      <!-- Écoute -->
+      <section class="panneau panneau-ecoute" aria-labelledby="t-ecoute">
+        <h2 id="t-ecoute" class="panneau-titre">Écoute</h2>
+
+        <div class="auditeurs">
+          <span class="auditeurs-nombre chiffres" id="statListeners">0</span>
+          <span class="auditeurs-libelle">auditeurs en train d’écouter</span>
+          <span class="auditeurs-sous" id="statVisitors"></span>
         </div>
 
-        <div class="language-grid" id="languageGrid">
-          <label class="language-checkbox">
-            <input type="checkbox" name="lang" value="en" checked>
-            <span class="checkmark"></span>
-            <span class="lang-flag">🇬🇧</span>
-            <span class="lang-label">Anglais</span>
-          </label>
-          <label class="language-checkbox">
-            <input type="checkbox" name="lang" value="es">
-            <span class="checkmark"></span>
-            <span class="lang-flag">🇪🇸</span>
-            <span class="lang-label">Espagnol</span>
-          </label>
-          <label class="language-checkbox">
-            <input type="checkbox" name="lang" value="pt">
-            <span class="checkmark"></span>
-            <span class="lang-flag">🇵🇹</span>
-            <span class="lang-label">Portugais</span>
-          </label>
-          <label class="language-checkbox">
-            <input type="checkbox" name="lang" value="de">
-            <span class="checkmark"></span>
-            <span class="lang-flag">🇩🇪</span>
-            <span class="lang-label">Allemand</span>
-          </label>
-          <label class="language-checkbox">
-            <input type="checkbox" name="lang" value="zh">
-            <span class="checkmark"></span>
-            <span class="lang-flag">🇨🇳</span>
-            <span class="lang-label">Chinois</span>
-          </label>
-          <label class="language-checkbox">
-            <input type="checkbox" name="lang" value="ar">
-            <span class="checkmark"></span>
-            <span class="lang-flag">🇸🇦</span>
-            <span class="lang-label">Arabe</span>
-          </label>
-        </div>
-
-        <button class="btn-main-action start" id="btnToggle">
-          <span class="btn-icon">⚡</span>
-          Démarrer la Traduction
-        </button>
-      </div>
-
-      <!-- --- Live Monitoring --- -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-icon">📊</div>
-          <div class="card-title">Surveillance en Direct</div>
-        </div>
-
-        <div class="monitoring-stats">
-          <div class="stat-card">
-            <div class="stat-icon">🌐</div>
-            <div class="stat-value" id="statSessions">0</div>
-            <div class="stat-label">Sessions</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">👥</div>
-            <div class="stat-value" id="statListeners">0</div>
-            <div class="stat-label">Auditeurs</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">⚡</div>
-            <div class="stat-value" id="statStatus">Inactif</div>
-            <div class="stat-label">État</div>
+        <div class="bloc">
+          <h3 class="bloc-titre">Traductions actives <span class="compteur chiffres" id="statSessions">0</span></h3>
+          <div class="session-list" id="sessionList">
+            <div class="session-empty">Aucune traduction en cours</div>
           </div>
         </div>
 
-        <div class="session-list" id="sessionList">
-          <div class="session-empty">Aucune session active</div>
-        </div>
-
-        <div class="uptime-display">
-          <span class="uptime-label">⏱ Durée :</span>
-          <span class="uptime-value" id="uptimeValue">00:00:00</span>
-        </div>
-      </div>
-
-      <!-- --- Connection Info --- -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-icon">🔗</div>
-          <div class="card-title">Informations de Connexion</div>
-        </div>
-
-        <div class="connection-info-grid">
-          <div class="client-url-block">
-            <div class="client-url-label">URL pour les auditeurs</div>
-            <div class="client-url">
+        <div class="bloc partage">
+          <h3 class="bloc-titre">Inviter les fidèles</h3>
+          <div class="partage-corps">
+            <div class="qr" id="qrCode">
+              <img id="qrImage" src="/qr.svg" alt="QR code de la page d’écoute" width="148" height="148">
+            </div>
+            <div class="partage-texte">
+              <p>Projetez ce QR code ou partagez l’adresse&nbsp;:</p>
               <div class="client-url-value" id="clientUrl">—</div>
-              <button class="btn-copy" id="btnCopyUrl" title="Copier l'URL">📋 Copier</button>
+              <button class="btn-copy" id="btnCopyUrl" type="button">Copier l’adresse</button>
             </div>
-            <div class="client-url-label" style="margin-top:8px;">Partagez cette adresse avec les fidèles pour qu'ils reçoivent la traduction en temps réel sur leur smartphone.</div>
-          </div>
-          <div class="qr-container" id="qrCode" style="display:flex; justify-content:center; align-items:center; background:rgba(255,255,255,0.05); border-radius:12px; padding:12px;">
-            <span class="qr-icon">⬜</span>
           </div>
         </div>
-      </div>
+      </section>
 
-    </div><!-- /dashboard-grid -->
+      <!-- Transcription -->
+      <section class="panneau panneau-transcription" aria-labelledby="t-transcription">
+        <h2 id="t-transcription" class="panneau-titre">Transcription en direct</h2>
+        <div class="transcript-grid">
+          <div>
+            <h3 class="bloc-titre">Ce qui est dit</h3>
+            <div class="transcript-box" id="transcriptInput"><span class="transcript-empty">Le texte apparaîtra quand la traduction sera lancée.</span></div>
+          </div>
+          <div>
+            <h3 class="bloc-titre">Ce qui est traduit <span id="transcriptLang"></span></h3>
+            <div class="transcript-box" id="transcriptOutput"><span class="transcript-empty">—</span></div>
+          </div>
+        </div>
+      </section>
 
-    <!-- ====== FOOTER ====== -->
-    <footer class="footer">
-      <div>TransAudio v1.0 — Traduction audio en temps réel</div>
-      <div class="footer-ws-status">
-        <span class="status-dot" id="wsStatusDotFooter"></span>
-        <span id="wsStatusTextFooter">WebSocket : Déconnecté</span>
-      </div>
+    </main>
+
+    <footer class="pied">
+      <span>TransAudio</span>
+      <span class="etat">
+        <span class="status-dot" id="wsStatusDotFooter" aria-hidden="true"></span>
+        <span id="wsStatusTextFooter">Serveur : déconnecté</span>
+      </span>
     </footer>
+  </div>
 
-  </div><!-- /app-container -->
+  <div class="toast-container" id="toastContainer" role="status" aria-live="polite"></div>
 
-  <!-- Toast Container -->
-  <div class="toast-container" id="toastContainer"></div>
-
-  <script src="vendor/qrcode.js"></script>
-  <script src="admin.js"></script>
+  <script src="admin.js?v=4"></script>
 </body>
 </html>

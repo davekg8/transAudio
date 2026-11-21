@@ -54,6 +54,33 @@ test('AudioBroadcaster - broadcast sends audio to matching language clients only
   assert.strictEqual(frAudioMsgs.length, 0);
 });
 
+test('AudioBroadcaster - captions go only to listeners of that language', () => {
+  const broadcaster = new AudioBroadcaster();
+  const wsEn = new MockWebSocket();
+  const wsPt = new MockWebSocket();
+  const wsPage = new MockWebSocket();
+
+  broadcaster.addClient(wsEn, 'en');
+  broadcaster.addClient(wsPt, 'pt');
+  broadcaster.addPage(wsPage); // page open, no language picked yet
+
+  broadcaster.sendCaption('en', 'Hello everyone');
+
+  assert.deepStrictEqual(wsEn.sent.filter(m => m.type === 'caption').map(m => m.text), ['Hello everyone']);
+  assert.strictEqual(wsPt.sent.filter(m => m.type === 'caption').length, 0);
+  assert.strictEqual(wsPage.sent.filter(m => m.type === 'caption').length, 0);
+  assert.strictEqual(broadcaster.totalClients, 3);
+  assert.strictEqual(broadcaster.totalListeners, 2);
+});
+
+test('AudioBroadcaster - new pages receive the available languages', () => {
+  const broadcaster = new AudioBroadcaster();
+  broadcaster.setAvailableLanguages(['en', 'es']);
+  const ws = new MockWebSocket();
+  broadcaster.addPage(ws);
+  assert.deepStrictEqual(ws.sent[0], { type: 'languages', available: ['en', 'es'] });
+});
+
 test('AudioBroadcaster - notifySessionStatus', () => {
   const broadcaster = new AudioBroadcaster();
   const wsEn = new MockWebSocket();

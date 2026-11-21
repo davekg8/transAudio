@@ -18,9 +18,11 @@ class SessionManager extends EventEmitter {
    * @param {Object} opts
    * @param {string} opts.apiKey  Gemini API key
    * @param {string} [opts.model] Gemini model
+   * @param {string} [opts.url]   Gemini endpoint override (tests)
    */
-  constructor({ apiKey, model }) {
+  constructor({ apiKey, model, url }) {
     super();
+    this._url = url;
     this._apiKey = apiKey;
     this._model = model || process.env.GEMINI_MODEL;
     this._logger = new Logger('SessionManager');
@@ -48,51 +50,88 @@ class SessionManager extends EventEmitter {
 
     this._logger.info(`Starting translation sessions for: ${languages.join(', ')}`);
     this._audioChunkCount = 0;
-
-    const connectPromises = languages.map(async (lang) => {
-      const translator = new GeminiTranslator({
-        apiKey: this._apiKey,
-        targetLanguage: lang,
-        model: this._model
-      });
-
-      // Forward translated audio as events
-      translator.onAudio((chunk) => {
-        this.emit(`audio:${lang}`, chunk);
-      });
-
-      translator.on('connected', () => {
-        this._logger.info(`Session [${lang}] connected successfully`);
-        this.emit('session_status', { language: lang, status: 'connected' });
-      });
-
-      translator.on('reconnecting', (attempt) => {
-        this._logger.warn(`Session [${lang}] reconnecting (attempt ${attempt})`);
-        this.emit('session_status', { language: lang, status: 'reconnecting', attempt });
-      });
-
-      translator.on('disconnected', () => {
-        this._logger.warn(`Session [${lang}] disconnected`);
-        this.emit('session_status', { language: lang, status: 'disconnected' });
-      });
-
-      translator.on('error', (err) => {
-        this._logger.error(`Session [${lang}] error`, err);
-        this.emit('session_error', { language: lang, error: err.message });
-      });
-
-      this._translators.set(lang, translator);
-
-      try {
-        await translator.connect();
-      } catch (err) {
-        this._logger.error(`Failed to connect session [${lang}]`, err);
-      }
-    });
-
-    await Promise.allSettled(connectPromises);
+    await Promise.allSettled(languages.map((lang) => this._addTranslator(lang)));
     this._streaming = true;
     this._logger.info('All translation sessions initiated');
+  }
+
+  /**
+   * Change the languages while streaming: new languages get a session,
+   * removed ones are stopped, the others keep running without interruption.
+   * @param {string[]} languages
+   */
+  async updateLanguages(languages) {
+    if (!this._streaming) return;
+    const wanted = new Set(languages);
+    for (const lang of [...this._translators.keys()]) {
+      if (!wanted.has(lang)) this._removeTranslator(lang);
+    }
+    const added = languages.filter((l) => !this._translators.has(l));
+    if (added.length) this._logger.info(`Adding translation sessions for: ${added.join(', ')}`);
+    await Promise.allSettled(added.map((lang) => this._addTranslator(lang)));
+  }
+
+  /** Language whose session forwards the (shared) source transcript. */
+  get _primaryLanguage() {
+    return this._translators.keys().next().value;
+  }
+
+  async _addTranslator(lang) {
+    const translator = new GeminiTranslator({
+      apiKey: this._apiKey,
+      targetLanguage: lang,
+      model: this._model,
+      url: this._url
+    });
+
+    // Forward translated audio and captions as events
+    translator.onAudio((chunk) => {
+      this.emit('audio', lang, chunk);
+    });
+    translator.on('output_transcript', (text) => {
+      this.emit('transcript', { language: lang, kind: 'output', text });
+    });
+    // The source transcript is identical for every language: forward it once.
+    translator.on('input_transcript', (text) => {
+      if (lang === this._primaryLanguage) this.emit('transcript', { language: lang, kind: 'input', text });
+    });
+
+    translator.on('connected', () => {
+      this._logger.info(`Session [${lang}] connected successfully`);
+      this.emit('session_status', { language: lang, status: 'connected' });
+    });
+
+    translator.on('reconnecting', (attempt) => {
+      this._logger.warn(`Session [${lang}] reconnecting (attempt ${attempt})`);
+      this.emit('session_status', { language: lang, status: 'reconnecting', attempt });
+    });
+
+    translator.on('disconnected', () => {
+      this._logger.warn(`Session [${lang}] disconnected`);
+      this.emit('session_status', { language: lang, status: 'disconnected' });
+    });
+
+    translator.on('error', (err) => {
+      this._logger.error(`Session [${lang}] error`, err);
+      this.emit('session_error', { language: lang, error: err.message });
+    });
+
+    this._translators.set(lang, translator);
+
+    try {
+      await translator.connect();
+    } catch (err) {
+      this._logger.error(`Failed to connect session [${lang}]`, err);
+    }
+  }
+
+  _removeTranslator(lang) {
+    const translator = this._translators.get(lang);
+    if (!translator) return;
+    translator.disconnect();
+    translator.removeAllListeners();
+    this._translators.delete(lang);
+    this._logger.info(`Session [${lang}] stopped`);
   }
 
   /**
@@ -100,12 +139,7 @@ class SessionManager extends EventEmitter {
    */
   async stopSession() {
     this._logger.info('Stopping all active translation sessions');
-    for (const [lang, translator] of this._translators) {
-      translator.disconnect();
-      translator.removeAllListeners();
-      this._logger.info(`Session [${lang}] stopped`);
-    }
-    this._translators.clear();
+    for (const lang of [...this._translators.keys()]) this._removeTranslator(lang);
     this._streaming = false;
     this._audioChunkCount = 0;
   }
@@ -125,15 +159,6 @@ class SessionManager extends EventEmitter {
     for (const translator of this._translators.values()) {
       translator.sendAudio(base64PcmChunk);
     }
-  }
-
-  /**
-   * Register a callback for translated audio of a specific language.
-   * @param {string}   language
-   * @param {Function} callback (base64Chunk) => void
-   */
-  onTranslatedAudio(language, callback) {
-    this.on(`audio:${language}`, callback);
   }
 
   /**
